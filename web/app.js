@@ -515,69 +515,121 @@ async function loadChatScreen() {
 
 async function sendMessage() {
     const input = document.getElementById('chat-input');
-    let message = input.value.trim();
+    const message = input.value.trim();
     const sendBtn = document.getElementById('send-button');
     
     if (!message || isStreaming) return;
-
-    // 1. Clear input and add user message
+    
+    // 1. Add user message and temporary assistant message
     input.value = '';
     chatMessages.push({ role: 'user', content: message });
-    renderChat();
     
-    // 2. Add temporary streaming message and disable button
-    isStreaming = true;
-    if (sendBtn) sendBtn.disabled = true;
-
-    // --- STUBBED API CALL (Since Python chat endpoint is missing) ---
-    const assistantMessage = { role: 'assistant', content: 'Thinking...' };
+    // Add temporary assistant message for streaming
+    const assistantMessage = { role: 'assistant', content: '' };
     chatMessages.push(assistantMessage);
-    renderChat();
+
+    // Disable input and render
+    if (sendBtn) sendBtn.disabled = true;
+    isStreaming = true;
+    renderChat(); // Render user message and "Thinking..." placeholder
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
     try {
-        // In a real app, this would stream the response from the Flask /api/chat endpoint
-        console.log(`Sending message to AI model ${MODEL}: ${message}`);
-        
-        const context = cache.dbContext || {};
-        
-        // Simulate API delay and streaming
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        const mockResponse = `That's a fantastic question. Based on the latest Commissioner's Parity Report (CPR), ${message.includes("team") ? "that team" : "that player"} is highly rated. 
+        // --- LIVE API CALL TO CLOUD FUNCTION ---
+        const response = await fetch(`${API_BASE}/chatProxy`, { // <-- CORRECTED FETCH URL
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                messages: chatMessages.filter(m => m.role !== 'thinking'), // Send all messages except placeholders
+                model: MODEL,
+                stream: true
+            }),
+            signal: controller.signal
+        });
+        // --- END LIVE API CALL ---
 
-If you are asking about rankings, the current number one team by CPR score is **${context.rankings?.[0]?.team || 'N/A'}** with a score of **${context.rankings?.[0]?.cpr.toFixed(3) || 'N/A'}**.
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-The league health index is currently **${(context.league?.health * 100).toFixed(1) || 'N/A'}%**, indicating reasonable parity across the league.
-
-Let me know if you want a deeper dive into any specific metric or player like **${context.top_players?.[0]?.player_name || 'N/A'}**.`;
+        // Process stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
         
-        // Replace temporary message with final content
-        chatMessages.pop();
-        chatMessages.push({ role: 'assistant', content: mockResponse });
+        // Remove the temporary assistant message for streaming
+        chatMessages.pop(); 
+        let finalAssistantMessage = { role: 'assistant', content: '' };
+        chatMessages.push(finalAssistantMessage); // Add final message object
 
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+            
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                
+                try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.choices?.[0]?.delta?.content) {
+                        finalAssistantMessage.content += data.choices[0].delta.content;
+                        renderChat();
+                        scrollToBottom(true);
+                    }
+                } catch (e) {
+                    console.warn('Error parsing chunk:', e);
+                }
+            }
+        }
+        
+        // The final message is already in chatMessages
+        
     } catch (error) {
         console.error('Chat error:', error);
-        chatMessages.pop(); // Remove placeholder
+        // Remove the finalAssistantMessage object if it's empty due to error
+        if (chatMessages[chatMessages.length - 1] === finalAssistantMessage && finalAssistantMessage.content === '') {
+             chatMessages.pop();
+        }
         chatMessages.push({ 
             role: 'assistant', 
-            content: 'Sorry, I encountered an error. The chat API is currently unavailable.' 
+            content: `Sorry, I encountered an error. Details: ${error.message}` 
         });
     } finally {
+        clearTimeout(timeoutId);
         isStreaming = false;
         if (sendBtn) sendBtn.disabled = false;
         renderChat();
         scrollToBottom(true);
     }
-    // --- END STUBBED API CALL ---
 }
-
 
 // Simple markdown renderer
 function renderMarkdown(text) {
     let result = text;
     
+    // Tables (simplified markdown table support)
+    result = result.replace(/\|(.+)\|\n\|[-:\s|]+\|\n((?:\|.+\|\n?)+)/g, (_match, header, rows) => {
+        const headers = header.split('|').map(h => h.trim()).filter(h => h);
+        const rowData = rows.trim().split('\n').map(row =>
+            row.split('|').map(cell => cell.trim()).filter(cell => cell)
+        );
+
+        let table = '<table class="chat-table"><thead><tr>';
+        headers.forEach(h => table += `<th>${h}</th>`);
+        table += '</tr></thead><tbody>';
+        rowData.forEach(row => {
+            table += '<tr>';
+            row.forEach(cell => table += `<td>${cell}</td>`);
+            table += '</tr>';
+        });
+        table += '</tbody></table>';
+        return table;
+    });
+    
     return result
-        // Code blocks
+        // Code blocks (before bold/italic to avoid conflicts)
         .replace(/```([\s\S]+?)```/g, '<pre><code>$1</code></pre>')
         // Bold
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -585,15 +637,16 @@ function renderMarkdown(text) {
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
         // Inline code
         .replace(/`(.+?)`/g, '<code>$1</code>')
-        // Headers (Simplified)
+        // Headers
         .replace(/^### (.+)$/gm, '<h3>$1</h3>')
         .replace(/^## (.+)$/gm, '<h2>$1</h2>')
         .replace(/^# (.+)$/gm, '<h1>$1</h1>')
         // Bullet lists
-        .replace(/^[*-] (.+)$/gm, '<li>$1</li>')
+        .replace(/^\* (.+)$/gm, '<li>$1</li>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
         // Wrap lists
-        .replace(/(<li>.*<\/li>(\s*<li>.*<\/li>)*)/s, '<ul>$1</ul>')
-        // Line breaks
+        .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+        // Line breaks - ONLY double newlines become <br>, single newlines are ignored
         .replace(/\n\n+/g, '<br>')
         .replace(/\n/g, ' ');
 }
@@ -603,45 +656,58 @@ const scrollToBottom = debounce((smooth = false) => {
     const chatMessagesEl = document.getElementById('chat-messages');
     if (!chatMessagesEl) return;
 
-    chatMessagesEl.scrollTo({
-        top: chatMessagesEl.scrollHeight,
-        behavior: smooth ? 'smooth' : 'auto'
-    });
+    // Use a slight delay to ensure DOM update is complete before scrolling
+    setTimeout(() => {
+        chatMessagesEl.scrollTo({
+            top: chatMessagesEl.scrollHeight,
+            behavior: smooth ? 'smooth' : 'auto'
+        });
+    }, 10);
 }, 50);
 
 function renderChat() {
     const container = document.getElementById('chat-messages');
-    if (!container) return;
+    if (!container) {
+        console.error('Chat messages container not found');
+        return;
+    }
 
     // Check if user is scrolled to the bottom before rendering
     const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
 
-    container.innerHTML = chatMessages.map((msg) => {
-        const user = window.firebaseAuth?.currentUser;
-        let avatar = '';
-        if (msg.role === 'user') {
-            if (user) { // Only show avatar if user is logged in
-                const userPhotoURL = user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'U'}&background=509ae3&color=fff`;
-                avatar = `<div class="message-avatar"><img src="${userPhotoURL}" alt="User"></div>`;
+    try {
+        // Full render for all messages
+        container.innerHTML = chatMessages.map((msg, index) => {
+            const user = window.firebaseAuth?.currentUser;
+            let avatar = '';
+            if (msg.role === 'user') {
+                if (user) { // Only show avatar if user is logged in
+                    const userPhotoURL = user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'U'}&background=509ae3&color=fff`;
+                    avatar = `<div class="message-avatar"><img src="${userPhotoURL}" alt="User"></div>`;
+                }
+            } else {
+                avatar = `<div class="message-avatar"><img src="jaylen.png" alt="Jaylen Hendricks"></div>` ;
             }
-        } else {
-            avatar = `<div class="message-avatar"><img src="jaylen.png" alt="Jaylen Hendricks"></div>`;
-        }
-        
-        // Note: The message structure needs to match the CSS/HTML design
-        return `
-            <div class="message ${msg.role === 'user' ? 'user' : 'assistant'}">
-                ${avatar}
-                <div class="message-bubble">
-                    <div class="message-text">${renderMarkdown(msg.content)}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
 
-    // Only scroll to bottom if the user was near the bottom before the update
-    if (isScrolledToBottom || chatMessages.length === 1) {
-        scrollToBottom(true);
+            return `
+                <div class="message ${msg.role === 'user' ? 'user' : 'assistant'}" data-index="${index}">
+                    ${avatar}
+                    <div class="message-bubble">
+                        <div class="message-text">${renderMarkdown(msg.content)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Scroll to bottom if user was near the bottom OR if a new user message was just sent
+        if (isScrolledToBottom || chatMessages[chatMessages.length - 1]?.role === 'user') { // <-- FIXED SCROLL LOGIC
+            scrollToBottom(true);
+        }
+    } catch (error) {
+        console.error('Error rendering chat:', error);
+        if (container) {
+            container.innerHTML = '<div class="error">Error loading chat. Please refresh the page.</div>';
+        }
     }
 }
 
