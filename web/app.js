@@ -617,10 +617,16 @@ function renderChat() {
     const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
 
     container.innerHTML = chatMessages.map((msg) => {
-        const userPhotoURL = window.firebaseAuth?.currentUser?.photoURL || 'https://ui-avatars.com/api/?name=User&background=509ae3&color=fff';
-        const avatar = msg.role === 'user' 
-            ? `<div class="message-avatar"><img src="${userPhotoURL}" alt="User"></div>` 
-            : `<div class="message-avatar"><img src="jaylen.png" alt="Jaylen Hendricks"></div>`;
+        const user = window.firebaseAuth?.currentUser;
+        let userAvatarHtml = '';
+        if (msg.role === 'user' && user) {
+            const userPhotoURL = user.photoURL || 'https://ui-avatars.com/api/?name=User&background=509ae3&color=fff';
+            userAvatarHtml = `<div class="message-avatar"><img src="${userPhotoURL}" alt="User"></div>`;
+        }
+
+        const assistantAvatarHtml = `<div class="message-avatar"><img src="jaylen.png" alt="Jaylen Hendricks"></div>`;
+        
+        const avatar = msg.role === 'user' ? userAvatarHtml : assistantAvatarHtml;
 
         // Note: The message structure needs to match the CSS/HTML design
         return `
