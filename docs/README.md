@@ -201,33 +201,27 @@ python scripts/send_report.py --email ezialb777@gmail.com
 - AI Chat Assistant (trash-talking, research-capable)
 - Liquid glass design (NBA blue + professional UI)
 - Works on ANY device (phone, tablet, desktop)
-- Real-time data from Flask API
+
+### Backend (Serverless)
+
+- **Firebase Cloud Functions**: The entire backend is serverless, running on Firebase Cloud Functions (`functions/index.js`). It provides a secure, scalable API that reads directly from Firestore.
+- **Deployment**: The backend is deployed with the command `firebase deploy --only functions`.
 
 ### Usage:
 
-**IMPORTANT: You must start the Flask API server before using the web app!**
-
 ```bash
-# Step 1: Start the Flask API server (required!)
-source venv/bin/activate
-python3 web_server.py
-
-# Step 2: In another terminal, open the web app
+# Step 1: Open the web app
 open web/index.html
 
-# Or serve with Python (in another terminal):
-cd web
-python3 -m http.server 8000
-# Visit http://localhost:8000
-```
-
-The web app connects to the Flask API at `http://localhost:5001` to fetch live CPR data.
+# Step 2: Deploy to Firebase Hosting
+# This makes the app live on the web, connected to your Cloud Functions.
+firebase deploy --only hosting
 
 ### Screens:
 1. **CPR** - Live rankings, league stats, Alvarado mode toggle
 2. **NIV** - Team rosters, player stats, fantasy points
 3. **CHAT** - AI assistant powered by Cogito-v2 (405B)
-
+```
 **See web/README.md for deployment instructions.**
 
 ---

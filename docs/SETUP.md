@@ -1,30 +1,43 @@
 # CPR v2.0 Setup Guide
 
-## Quick Start
+## Quick Start: The Serverless Way
 
-### 1. Install Dependencies
+This guide assumes you have the Firebase CLI installed and configured.
+
+### 1. Install Frontend & Backend Dependencies
+
 ```bash
-cd CPR
+# Install backend Node.js dependencies
+cd functions
+npm install
+cd ..
+
+# Install python dependencies for the data pipeline
 pip install -r requirements.txt
 ```
 
-### 2. Configure Settings
-Edit `config/settings.yaml`:
-- Set your ESPN league ID
-- Set your email address
-- Adjust CPR weights if needed
+### 2. Configure Firebase & API Keys
 
-Edit `config/alvarado_mode.yaml`:
-- Choose Alvarado Index mode (salary, performance, or hybrid)
+- **Project ID**: Make sure your `.firebaserc` file points to your correct Firebase project (`cpr-app-54c15`).
+- **OpenRouter API Key**: Securely set your OpenRouter API key in the Firebase environment:
+  ```bash
+  firebase functions:config:set openrouter.api_key="YOUR_API_KEY"
+  ```
 
-### 3. Run CPR
+### 3. Deploy the App & Backend
+
 ```bash
-python scripts/run_cpr.py --save-to-db
+# Deploy the backend Cloud Functions and the frontend web app
+firebase deploy
 ```
 
-### 4. Generate Report
+### 4. Run the Automated Data Pipeline
+
+The Python ETL pipeline is designed to be run as an automated, containerized job (e.g., on Google Cloud Run). To run it manually:
+
 ```bash
-python scripts/send_report.py --email ezialb777@gmail.com
+# This master script fetches data, calculates all metrics, and saves to Firestore.
+python scripts/master_pipeline.py
 ```
 
 ---

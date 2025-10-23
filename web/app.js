@@ -1,5 +1,5 @@
 // API Configuration
-const API_BASE = '/api';
+const API_BASE = 'https://us-central1-cpr-app-54c15.cloudfunctions.net/api';
 
 // AI Model (OpenRouter key is stored securely on backend)
 const MODEL = 'meta-llama/llama-3.2-3b-instruct:free';
