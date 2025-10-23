@@ -618,19 +618,19 @@ function renderChat() {
 
     container.innerHTML = chatMessages.map((msg) => {
         const user = window.firebaseAuth?.currentUser;
-        let userAvatarHtml = '';
-        if (msg.role === 'user' && user) {
-            const userPhotoURL = user.photoURL || 'https://ui-avatars.com/api/?name=User&background=509ae3&color=fff';
-            userAvatarHtml = `<div class="message-avatar"><img src="${userPhotoURL}" alt="User"></div>`;
+        let avatar = '';
+        if (msg.role === 'user') {
+            if (user) { // Only show avatar if user is logged in
+                const userPhotoURL = user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'U'}&background=509ae3&color=fff`;
+                avatar = `<div class="message-avatar"><img src="${userPhotoURL}" alt="User"></div>`;
+            }
+        } else {
+            avatar = `<div class="message-avatar"><img src="jaylen.png" alt="Jaylen Hendricks"></div>`;
         }
-
-        const assistantAvatarHtml = `<div class="message-avatar"><img src="jaylen.png" alt="Jaylen Hendricks"></div>`;
         
-        const avatar = msg.role === 'user' ? userAvatarHtml : assistantAvatarHtml;
-
         // Note: The message structure needs to match the CSS/HTML design
         return `
-            <div class="message ${msg.role === 'user' ? 'user-message' : 'assistant-message'}">
+            <div class="message ${msg.role === 'user' ? 'user' : 'assistant'}">
                 ${avatar}
                 <div class="message-bubble">
                     <div class="message-text">${renderMarkdown(msg.content)}</div>
