@@ -2,40 +2,48 @@
 """Master CPR Pipeline - ESPN to Firestore in one command"""
 import sys
 import subprocess
+import logging
 from pathlib import Path
 
+def setup_logging():
+    """Set up structured logging for the pipeline."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
 def run_pipeline():
-    """Run complete ESPN -> CPR -> Firestore pipeline"""
-    print("🚀 CPR MASTER PIPELINE")
-    print("=" * 50)
+    """Run complete ESPN -> CPR -> Firestore pipeline with logging."""
+    setup_logging()
+    logging.info("🚀 CPR MASTER PIPELINE STARTING...")
     
+    script_dir = Path(__file__).parent
+
     # Step 1: Fetch ESPN data
-    print("\n📡 Step 1: Fetching ESPN data...")
-    result = subprocess.run([
-        sys.executable, 'scripts/espn_league_fetcher.py', 
-        '--league_id', '2058537017'  # blaize's FBA league
-    ], cwd=Path(__file__).parent)
-    
-    if result.returncode != 0:
-        print("❌ ESPN fetch failed")
+    logging.info("📡 STEP 1: Fetching ESPN data...")
+    # Step 1: Fetch ESPN data
+    logging.info("📡 STEP 1: Fetching ESPN data...")
+    fetch_process = subprocess.run([
+        sys.executable, str(script_dir / 'espn_league_fetcher.py'),
+        '--league_id', '2058537017' # blaize's FBA league
+    ])
+    if fetch_process.returncode != 0:
+        logging.error("❌ ESPN fetch failed. Halting pipeline.")
         return False
-    
+    logging.info("  -> ESPN fetch successful.")
+
     # Step 2: Run CPR calculation and save to Firestore
-    print("\n🧮 Step 2: Running CPR calculation...")
-    result = subprocess.run([
-        sys.executable, 'scripts/full_cpr_update.py'
-    ], cwd=Path(__file__).parent)
-    
-    if result.returncode != 0:
-        print("❌ CPR calculation failed")
+    logging.info("🧮 STEP 2: Running CPR calculation and saving to Firestore...")
+    cpr_process = subprocess.run([
+        sys.executable, str(script_dir / 'full_cpr_update.py')
+    ])
+    if cpr_process.returncode != 0:
+        logging.error("❌ CPR calculation failed. Halting pipeline.")
         return False
-    
-    print("\n✅ Pipeline complete! Data is now in Firestore.")
-    print("\n🌐 Start web server:")
-    print("   python api/firestore_server.py")
-    print("\n📱 Open web app:")
-    print("   open web/index.html")
-    
+    logging.info("  -> CPR calculation and save successful.")
+
+    logging.info("✅ PIPELINE COMPLETE! Data is now in Firestore.")
     return True
 
 if __name__ == '__main__':

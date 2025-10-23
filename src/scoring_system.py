@@ -55,14 +55,16 @@ def load_scoring_weights():
     conn.close()
 
 def get_scoring_weights():
-    """Retrieve scoring weights from database"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    """Get scoring weights from the YAML config file."""
+    import yaml
+    from pathlib import Path
+
+    config_path = Path(__file__).parent.parent / 'config' / 'settings.yaml'
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
     
-    results = cursor.execute("SELECT metric, weight FROM league_scoring").fetchall()
-    conn.close()
-    
-    return {metric: weight for metric, weight in results}
+    # The scoring weights are nested under 'fantasy_scoring'
+    return config.get('fantasy_scoring', {})
 
 def calculate_fantasy_points(stats):
     """

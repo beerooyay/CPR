@@ -1,55 +1,63 @@
 #!/usr/bin/env python3
 """Full CPR Update - Calculate and save all metrics"""
 import sys
+import argparse
+import logging
 from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.cpr_engine import CPREngine
-from src.firestore_saver import save_all_players_from_cpr
+from src.firestore_saver import save_player_data, save_cpr_data, save_league_metrics
+
+def setup_logging():
+    """Set up structured logging for the script."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
 def main(stats_path=None, season_year=None):
-    # dynamic paths and season
+    setup_logging()
+
     if not stats_path:
         stats_path = Path(__file__).parent.parent / 'data' / 'raw' / 'current_stats.csv'
     if not season_year:
         season_year = datetime.now().year
     
-    print(f"\n📊 running CPR for {season_year}...")
-    engine = CPREngine(str(stats_path))
-    results = engine.run()
+    logging.info(f"📊 Running CPR calculations for {season_year} using data from {stats_path}...")
+    
+    try:
+        engine = CPREngine(str(stats_path))
+        results = engine.run()
+        logging.info("  -> CPR engine calculations complete.")
+    except Exception as e:
+        logging.error(f"❌ CPR engine failed during execution: {e}")
+        raise
 
-    if not results:
-        print("❌ no results from CPR engine")
+    if not results or 'players' not in results or 'cpr_rankings' not in results or 'league_metrics' not in results:
+        logging.error("❌ CPR engine did not return the expected data structure. Halting.")
         return
-    
-    print(f"✅ {len(results['players'])} players, {len(results['teams'])} teams")
 
-    # display top 3 teams
-    print("\n🏆 top 3:")
-    for team in results['teams'][:3]:
-        name = team.get('team') or team.get('team_key', '')
-        print(f"{team.get('rank', 0)}. {name}: CPR={team.get('CPR', 0):.3f}")
+    logging.info(f"  -> Engine produced data for {len(results['players'])} players and {len(results['cpr_rankings'])} teams.")
 
-    # save player data
-    print(f"\n💾 saving to database...")
-    saved = save_all_players_from_cpr({
-        'players': engine.players,
-        'teams': results['teams']
-    }, season_year=season_year)
-    print(f"✅ saved {saved} players")
+    logging.info("🔥 Saving all results to Firestore...")
+    try:
+        save_player_data(results['players'], season=season_year)
+        save_cpr_data(results['cpr_rankings'], season=season_year)
+        save_league_metrics(results['league_metrics'], season=season_year)
+        logging.info("  -> All data successfully saved to Firestore.")
+    except Exception as e:
+        logging.error(f"❌ Firestore save failed: {e}")
+        raise
 
-    # team and league metrics saved automatically by firestore_saver
-    league = results.get('league', {})
-    print(f"✅ gini: {league.get('gini', 0):.3f}, lhi: {league.get('lhi', 0):.1%}")
-    
-    print(f"\n✨ cpr update complete!\n")
+    logging.info("✅ CPR update complete!")
 
 if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--stats', type=str, help='path to stats CSV')
-    parser.add_argument('--year', type=int, default=2025, help='season year')
+    parser = argparse.ArgumentParser(description='Run the full CPR update and save to Firestore.')
+    parser.add_argument('--stats', type=str, help='Path to the stats CSV file.')
+    parser.add_argument('--year', type=int, default=datetime.now().year, help='The season year to process.')
     args = parser.parse_args()
-    main(args.stats, args.year)
+    main(stats_path=args.stats, season_year=args.year)
