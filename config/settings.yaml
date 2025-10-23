@@ -1,0 +1,61 @@
+# CPR v2.0 Configuration
+
+# Database
+database:
+  path: "data/cpr_data.db"
+  backup_enabled: true
+  backup_frequency: "daily"
+
+# Email Reports
+email:
+  recipient: "ezialb777@gmail.com"
+  sender: "cpr-reports@yourdomain.com"
+  schedule: "Monday 9:00 AM EST"
+  on_demand: true
+  format: "html"  # Options: html, pdf, markdown
+
+# Data Sources
+data_sources:
+  sportradar:
+    enabled: false  # disabled - use ESPN instead
+    api_key_env: "SPORTRADAR_API_KEY"  # set as environment variable
+    trial_expires: "2025-11-19"
+    rate_limit: 1.0
+  
+  espn:
+    enabled: true
+    league_id_env: "ESPN_LEAGUE_ID"  # set as environment variable
+  
+  nba_stats:
+    enabled: false
+    source: "stats.nba.com"
+  
+  basketball_reference:
+    enabled: false
+    fallback: true
+
+# Scoring
+scoring:
+  system: "9-cat H2H"
+  categories: ["FG%", "FT%", "3PM", "REB", "AST", "STL", "BLK", "TO", "PTS"]
+
+# CPR Weights (must sum to 1.0)
+cpr_weights:
+  sli: 0.35
+  bsi: 0.15
+  smi: 0.10
+  ingram: 0.15
+  alvarado: 0.15
+  zion: 0.10
+
+bench_multiplier: 0.3
+current_season: 2025
+
+automation:
+  daily_update:
+    enabled: true
+    time: "06:00 EST"
+  weekly_report:
+    enabled: true
+    day: "Monday"
+    time: "09:00 EST"

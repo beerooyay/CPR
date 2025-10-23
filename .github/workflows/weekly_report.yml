@@ -1,0 +1,47 @@
+name: Weekly CPR Report
+
+on:
+  schedule:
+    # Runs every Monday at 9:00 AM EST (14:00 UTC)
+    - cron: '0 14 * * 1'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Calculate CPR
+      run: |
+        python scripts/run_cpr.py --save-to-db
+    
+    - name: Generate report
+      run: |
+        python scripts/generate_report.py --format html
+    
+    - name: Send email
+      env:
+        SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+        RECIPIENT_EMAIL: "ezialb777@gmail.com"
+      run: |
+        python scripts/send_report.py --email $RECIPIENT_EMAIL
+    
+    - name: Upload report artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: cpr-report-${{ github.run_number }}
+        path: reports/cpr_report_*.html
+        retention-days: 90

@@ -1,0 +1,20 @@
+# Production Dependencies
+
+# Core
+PyYAML
+numpy
+pandas
+python-dotenv
+
+# Web Server
+Flask
+gunicorn
+Flask-Cors
+requests
+
+# Data & APIs
+nba-api
+espn-api
+
+# Firebase
+firebase-admin

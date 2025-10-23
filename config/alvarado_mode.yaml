@@ -1,0 +1,50 @@
+# Alvarado Index Configuration
+# Select which variant to use for value-per-dollar calculation
+
+# Current mode (change this to switch modes)
+mode: "performance"  # Options: "salary", "performance", "hybrid"
+
+# Mode Descriptions:
+# 
+# OPTION A: Salary-based (pure economic efficiency)
+#   Formula: AI = shapley_value / (salary / league_avg_salary)²
+#   Use when: You want to measure pure dollar efficiency
+#   Best for: Identifying undervalued contracts
+#
+# OPTION B: Performance-based (statistical efficiency)
+#   Formula: AI = shapley_value / (NIV / league_avg_NIV)²
+#   Use when: Salary data is unreliable or unavailable
+#   Best for: Measuring production relative to statistical output
+#
+# OPTION C: Hybrid (recommended - the killer)
+#   Formula: AI = shapley_value / [(NIV_z + salary_z) / 2]²
+#   Use when: You want both economic and statistical context
+#   Best for: Comprehensive value assessment
+
+# Mode-specific settings
+salary_mode:
+  enabled: true
+  salary_source: "spotrac"  # Options: spotrac, basketball_reference, manual
+  estimated_penalty: 0.9  # Reduce AI by 10% for estimated salaries
+
+performance_mode:
+  enabled: true
+  niv_baseline: "league_average"  # Options: league_average, position_average
+  consistency_weight: 0.2  # Weight for consistency in NIV calculation
+
+hybrid_mode:
+  enabled: true
+  niv_weight: 0.5  # Weight for NIV component
+  salary_weight: 0.5  # Weight for salary component
+  use_z_scores: true  # Normalize both components before combining
+
+# Advanced options
+advanced:
+  shapley_approximation: "monte_carlo"  # Options: exact, monte_carlo, regression
+  monte_carlo_samples: 1000  # Number of samples for approximation
+  lapm_enabled: false  # Leverage-Adjusted Plus-Minus (requires lineup data)
+  
+# Fallback behavior
+fallback:
+  if_no_salary: "performance"  # Use performance mode if salary unavailable
+  if_no_shapley: "niv"  # Use raw NIV if Shapley unavailable

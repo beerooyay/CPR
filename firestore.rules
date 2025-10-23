@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAdmin(userId) {
+      return request.auth.token.admin == true;
+    }
+    
+    // User profiles
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Team Claims
+    match /team_claims/{claimId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // League Data
+    match /league_data/{document=**} {
+      allow read: if true;
+      allow write: if true;  // allow automated updates
+    }
+    
+    // Team Claims - users can only read/write their own claims
+    match /teamClaims/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isOwner(userId);
+    }
+    
+    // Chat History - users can only access their own chats
+    match /chatHistory/{chatId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Notifications - users can only read their own notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Only cloud functions can create notifications
+      allow create: if false;
+    }
+    
+    // Scouting Reports - users can read their own reports
+    match /scoutingReports/{reportId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Only cloud functions can create reports
+      allow create, update, delete: if false;
+    }
+    
+    // Teams
+    match /teams/{teamId} {
+      allow read: if true;
+      allow write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+    
+    // Seasons
+    match /seasons/{seasonId} {
+      allow read: if true;
+      allow write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+    
+    // CPR Metrics
+    match /cpr_metrics/{metricId} {
+      allow read: if true;
+      allow write: if true;  // allow automated updates
+    }
+    
+    // Sync Logs - read-only for admins
+    match /syncLogs/{logId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+    
+    // CPR Logs - read-only for admins
+    match /cprLogs/{logId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+    
+    // Players - read-only for all users
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if true;  // allow cloud functions to write
+    }
+  }
+}

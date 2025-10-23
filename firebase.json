@@ -1,0 +1,40 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs18"
+  },
+  "hosting": {
+    "public": "web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/chat",
+        "function": "chatProxy"
+      },
+      {
+        "source": "/api/rankings",
+        "function": "rankings"
+      },
+      {
+        "source": "/api/teams",
+        "function": "teams"
+      },
+      {
+        "source": "/api/league-stats",
+        "function": "leagueStats"
+      },
+      {
+        "source": "/api/database-context",
+        "function": "databaseContext"
+      }
+    ]
+  }
+}
