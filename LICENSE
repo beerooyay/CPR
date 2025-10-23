@@ -1,21 +1,23 @@
-MIT License
+Copyright (c) 2025, Blaize Rouyea
+All Rights Reserved.
 
-Copyright (c) 2025 Blaize & Wind
+This software and associated documentation files (the "Software") are provided under the following terms:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### Permitted Use
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+You are hereby granted a non-exclusive, worldwide, royalty-free license to:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1.  **Use the Frontend**: Deploy and use the frontend web application (located in the `web/` directory) for personal, non-commercial purposes, specifically for managing and analyzing your own fantasy basketball league.
+2.  **Configure the Frontend**: Modify the configuration of the frontend to connect to your own fantasy league data and customize its appearance (e.g., league name, logo, and color scheme).
+
+### Prohibited Use
+
+You are expressly prohibited from:
+
+1.  **Modifying the Core Logic**: Modifying, adapting, or creating derivative works of the core backend logic, including but not limited to the Python scripts located in the `src/` and `scripts/` directories, and the Node.js Cloud Functions in the `functions/` directory.
+2.  **Redistributing the Software**: Redistributing, sublicensing, or selling the Software or any part thereof, in either source or binary form.
+3.  **Commercial Use**: Using the Software for any commercial purpose, including but not limited to offering it as a paid service, integrating it into a commercial product, or using it for commercial data analysis.
+
+### No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
