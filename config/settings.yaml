@@ -1,0 +1,119 @@
+# CPR-NFL Configuration File
+
+# Database Configuration
+database:
+  type: firestore
+  project_id: cpr-nfl
+  local_fallback: true
+  backup_enabled: true
+  backup_frequency: daily
+
+# Data Sources
+data_sources:
+  sleeper:
+    enabled: true
+    league_id_env: "SLEEPER_LEAGUE_ID"
+    base_url: "https://api.sleeper.app/v1"
+    rate_limit: 1.0
+    cache_ttl: 300
+    timeout: 30
+
+# NFL Scoring (standard PPR)
+scoring:
+  system: PPR
+  categories:
+    pass_yd: 0.04
+    pass_td: 4
+    pass_int: -2
+    rush_yd: 0.1
+    rush_td: 6
+    rec: 1
+    rec_yd: 0.1
+    rec_td: 6
+    fumble_lost: -2
+    conversion_2pt: 2
+
+# CPR Weights (must sum to 1.0)
+cpr_weights:
+  sli: 0.30      # Strength of Lineup Index
+  bsi: 0.20      # Bench Strength Index  
+  smi: 0.15      # Schedule Momentum Index
+  ingram: 0.15   # Ingram Index (injury/availability)
+  alvarado: 0.10 # Alvarado Index (performance consistency)
+  zion: 0.10     # Zion Index (explosive plays)
+
+bench_multiplier: 0.3
+current_season: 2025
+current_week: 1
+
+# AI Configuration (Jaylen Hendricks)
+ai:
+  model: openai/gpt-oss-20b:free
+  temperature: 0.7
+  max_tokens: 4000
+  system_prompt: "You are Jaylen Hendricks, a premier NFL fantasy analyst and CPR expert with deep expertise in player evaluation, league strategy, and advanced metrics. Provide insightful, data-driven analysis with a confident, expert tone."
+
+# MCP Configuration
+mcp:
+  enabled: true
+  firebase:
+    enabled: true
+    server: npx @gannonh/firebase-mcp
+  sleeper:
+    enabled: true
+    server: python mcp/sleeper_server.py
+
+# Logging Configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: logs/cpr-nfl.log
+  max_size: 10MB
+  backup_count: 5
+
+# Performance Configuration
+performance:
+  parallel_requests: true
+  max_concurrent_api_calls: 5
+  enable_caching: true
+  cache_size: 1000
+
+# Automation
+automation:
+  daily_update:
+    enabled: true
+    time: "06:00 EST"
+  weekly_report:
+    enabled: true
+    day: "Tuesday"
+    time: "09:00 EST"
+  gameday_update:
+    enabled: true
+    days: ["Thursday", "Sunday", "Monday"]
+
+# Email Reports
+email:
+  recipient: "ezialb777@gmail.com"
+  sender: "cpr-nfl-reports@yourdomain.com"
+  schedule: "Tuesday 9:00 AM EST"
+  on_demand: true
+  format: "html"
+
+# Web Integration
+web:
+  api_base: "https://us-central1-cpr-nfl.cloudfunctions.net"
+  firebase_config:
+    apiKey: "your-api-key"
+    authDomain: "cpr-nfl.firebaseapp.com"
+    projectId: "cpr-nfl"
+    storageBucket: "cpr-nfl.firebasestorage.app"
+    messagingSenderId: "your-sender-id"
+    appId: "your-app-id"
+
+# Feature Flags
+features:
+  enable_niv_calculations: true
+  enable_ai_chat: true
+  enable_mcp_integration: true
+  enable_real_time_updates: false
+  enable_email_reports: true

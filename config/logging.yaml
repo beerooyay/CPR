@@ -1,0 +1,87 @@
+# CPR-NFL Logging Configuration
+
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  default:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  detailed:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s'
+  json:
+    format: '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "module": "%(module)s", "line": %(lineno)d, "message": "%(message)s"}'
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: default
+    stream: ext://sys.stdout
+
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: detailed
+    filename: logs/cpr-nfl.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: logs/cpr-nfl-error.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+
+  api_file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: json
+    filename: logs/api-calls.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 3
+    encoding: utf8
+
+loggers:
+  # API logger
+  api:
+    level: DEBUG
+    handlers: [console, file, api_file]
+    propagate: false
+
+  # CPR engine logger
+  cpr:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+  # Database logger
+  database:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+  # AI logger
+  ai:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+  # MCP logger
+  mcp:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: false
+
+  # Pipeline logger
+  pipeline:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+root:
+  level: INFO
+  handlers: [console, file, error_file]

@@ -1,0 +1,55 @@
+{
+  "mcp_servers": {
+    "firebase": {
+      "command": "npx",
+      "args": ["-y", "@gannonh/firebase-mcp"],
+      "env": {
+        "SERVICE_ACCOUNT_KEY_PATH": "./firebase-credentials.json",
+        "FIREBASE_STORAGE_BUCKET": "cpr-nfl.firebasestorage.app"
+      },
+      "description": "Firebase/Firestore database operations",
+      "enabled": true
+    },
+    "sleeper": {
+      "command": "python",
+      "args": ["mcp/sleeper_server.py"],
+      "env": {
+        "SLEEPER_LEAGUE_ID": "1267325171853701120",
+        "PYTHONPATH": "./src"
+      },
+      "description": "Sleeper API operations",
+      "enabled": true
+    }
+  },
+  "client_settings": {
+    "timeout": 30,
+    "retry_attempts": 3,
+    "retry_delay": 1.0,
+    "enable_caching": true,
+    "cache_ttl": 300
+  },
+  "tool_mappings": {
+    "firebase": [
+      "firestore_get_document",
+      "firestore_add_document", 
+      "firestore_update_document",
+      "firestore_list_documents",
+      "firestore_query_collection_group"
+    ],
+    "sleeper": [
+      "get_league_info",
+      "get_team_rosters",
+      "get_player_data",
+      "get_matchups",
+      "get_transactions"
+    ]
+  },
+  "security": {
+    "validate_inputs": true,
+    "sanitize_outputs": true,
+    "rate_limit": {
+      "requests_per_minute": 60,
+      "burst_limit": 10
+    }
+  }
+}

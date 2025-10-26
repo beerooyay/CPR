@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#003368">
+    <title>NFL CPR - Commissioner's Power Rankings</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Shared Header -->
+        <div class="header" id="shared-header" style="display: none;">
+            <button class="back-button" id="header-back-button"><i class="fa-solid fa-arrow-left"></i></button>
+            <div class="header-info" id="header-info">
+                <h2 class="header-title" id="header-title"></h2>
+                <div class="header-subtitle" id="header-subtitle"></div>
+            </div>
+            <button class="profile-button" id="header-profile-button" onclick="showProfile()"><i class="fa-regular fa-circle"></i></button>
+        </div>
+
+        <!-- Screens -->
+        <div id="home-screen" class="screen active">
+            <button class="profile-button home-profile-button" id="home-profile-button" onclick="showProfile()"><i class="fa-regular fa-circle"></i></button>
+            <div class="home-container">
+                <div class="fba-logo">
+                    <img src="../lff.png" alt="LLF Logo">
+                </div>
+                <h1 class="title">COMMISSIONER'S PARITY REPORT</h1>
+                
+                <div class="button-container">
+                    <button class="glass-button" onclick="showScreen('cpr')">
+                        <div class="button-title">CPR</div>
+                        <div class="button-subtitle">POWER RANKINGS</div>
+                    </button>
+                    
+                    <button class="glass-button" onclick="showScreen('niv')">
+                        <div class="button-title">NIV</div>
+                        <div class="button-subtitle">PLAYER ANALYTICS</div>
+                    </button>
+                    
+                    <button class="glass-button" onclick="showScreen('chat')">
+                        <div class="button-title">CHAT</div>
+                        <div class="button-subtitle">LEAGUE INSIDER</div>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CPR Screen -->
+        <div id="cpr-screen" class="screen">
+
+            <div class="stats-container">
+                <div class="glass-card">
+                    <div class="neon-border"></div>
+                    <div class="stat-label">LEAGUE HEALTH</div>
+                    <div class="stat-value" id="league-health">92.6%</div>
+                </div>
+                <div class="glass-card">
+                    <div class="neon-border"></div>
+                    <div class="stat-label">GINI COEFF</div>
+                    <div class="stat-value" id="gini-coeff">0.000</div>
+                </div>
+            </div>
+
+            <div class="mode-container">
+                <div class="mode-label">ALVARADO MODE</div>
+                <div class="mode-buttons">
+                    <button class="mode-button active" data-mode="salary">SALARY</button>
+                    <button class="mode-button" data-mode="performance">PERFORMANCE</button>
+                    <button class="mode-button" data-mode="hybrid">HYBRID</button>
+                </div>
+            </div>
+
+            <div id="rankings-container" class="scroll-container"></div>
+        </div>
+
+        <!-- NIV Screen -->
+        <div id="niv-screen" class="screen">
+
+            <div id="niv-stats-container" class="stats-container" style="display: none;">
+                <!-- Stats cards will be added here dynamically when viewing roster -->
+            </div>
+
+            <div id="niv-container" class="scroll-container"></div>
+        </div>
+
+        <!-- Chat Screen -->
+        <div id="chat-screen" class="screen">
+
+            <div id="chat-messages" class="scroll-container"></div>
+        </div>
+
+        <!-- Chat Input -->
+        <div class="chat-input-container">
+            <div class="glass-input-wrapper">
+                <textarea id="chat-input" placeholder="ASK JAYLEN ABOUT YOUR LEAGUE..." maxlength="500"></textarea>
+                <input type="file" id="file-upload" accept="image/*,.pdf,.csv" style="display: none;" onchange="handleFileUpload(event)">
+                <button class="file-button" onclick="document.getElementById('file-upload').click()"><i class="fa-solid fa-paperclip"></i></button>
+                <button id="send-button" onclick="sendMessage()"><i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+        </div>
+
+        <!-- Profile Modal -->
+        <div id="profile-modal" class="modal">
+            <div class="modal-content">
+                <button class="modal-close" onclick="closeProfile()">×</button>
+                <div id="auth-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="mock_data.js"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // Import Firebase
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+        import { 
+            getAuth, 
+            signInWithPopup, 
+            GoogleAuthProvider, 
+            signOut, 
+            onAuthStateChanged,
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword
+        } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
+
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyBFKbtnje97D15OMa2URhDGIwt2Zf0XMTo",
+            authDomain: "cpr-app-54c15.firebaseapp.com",
+            projectId: "cpr-app-54c15",
+            storageBucket: "cpr-app-54c15.firebasestorage.app",
+            messagingSenderId: "404741325449",
+            appId: "1:404741325449:web:041ab6e7bab280f0867c58",
+            measurementId: "G-ZE6EFEDVS7"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        // Make auth available globally
+        window.firebaseAuth = auth;
+        window.firebase = {
+            signInWithPopup,
+            signOut,
+            onAuthStateChanged,
+            googleProvider,
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword
+        };
+
+        console.log('🔥 Firebase initialized!');
+
+        // Listen for auth state changes and update the UI
+        onAuthStateChanged(auth, (user) => {
+            renderAuthUI(user);
+
+            const profileButtons = document.querySelectorAll('.profile-button');
+            if (user) {
+                // Update profile button with user's avatar or initial
+                profileButtons.forEach(btn => {
+                    if (user.photoURL) {
+                        btn.innerHTML = `<img src="${user.photoURL}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">`;
+                    } else {
+                        btn.innerHTML = '<i class="fa-regular fa-circle"></i>';
+                    }
+                });
+            } else {
+                // Reset profile button
+                profileButtons.forEach(btn => {
+                    btn.innerHTML = '<i class="fa-regular fa-circle"></i>';
+                });
+            }
+        });
+    </script>
+    
+    <script src="app.js"></script>
+</body>
+</html>

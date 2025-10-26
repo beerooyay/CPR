@@ -1,0 +1,88 @@
+CPR-NFL Production Project Structure
+=====================================
+
+cpr-nfl/
+├── .env                          # Environment variables
+├── .env.example                  # Environment template
+├── .gitignore                    # Git ignore rules
+├── requirements.txt              # Python dependencies
+├── README.md                     # Project documentation
+├── docker-compose.yml            # Container orchestration
+├── Dockerfile                    # Container definition
+├── config/
+│   ├── settings.yaml             # Main configuration
+│   ├── logging.yaml              # Logging configuration
+│   └── mcp_config.json           # MCP server settings
+├── data/                         # Local data storage
+│   └── .gitkeep                  # Keep directory in git
+├── docs/                         # Documentation
+│   ├── api.md                    # API documentation
+│   ├── deployment.md             # Deployment guide
+│   ├── troubleshooting.md        # Common issues
+│   └── project_reference.txt     # This file
+├── mcp/                          # MCP servers
+│   ├── __init__.py
+│   ├── client.py                 # MCP client utilities
+│   ├── firebase_server.py        # Firebase MCP server wrapper
+│   └── sleeper_server.py         # Sleeper MCP server
+├── src/                          # Core modules
+│   ├── __init__.py
+│   ├── cpr.py                    # CPR calculations
+│   ├── niv.py                    # NIV analysis
+│   ├── jaylen.py                 # AI agent
+│   ├── database.py               # Database operations
+│   ├── api.py                    # Sleeper API client
+│   ├── models.py                 # Data models
+│   └── utils.py                  # Shared utilities
+├── scripts/                      # Execution scripts
+│   ├── pipeline.py               # Main data processing
+│   ├── fetch.py                  # Data fetching
+│   ├── calculate.py              # Calculations
+│   ├── test.py                   # System testing
+│   └── deploy.py                 # Deployment utilities
+├── web/                          # Frontend application
+│   ├── index.html                # Main page
+│   ├── style.css                 # Styling
+│   ├── app.js                    # Frontend logic
+│   └── assets/                   # Static assets
+│       ├── jaylen.png            # AI avatar
+│       └── favicon.ico           # Site icon
+├── tests/                        # Test suite
+│   ├── __init__.py
+│   ├── test_cpr.py               # CPR engine tests
+│   ├── test_niv.py               # NIV calculator tests
+│   ├── test_ai.py                # AI agent tests
+│   ├── test_mcp.py               # MCP integration tests
+│   └── test_integration.py       # Full system tests
+├── logs/                         # Application logs
+│   └── .gitkeep                  # Keep directory in git
+└── deployment/                   # Deployment configurations
+    ├── kubernetes/               # K8s configurations
+    ├── terraform/                # Infrastructure as code
+    └── monitoring/               # Monitoring setup
+
+File Naming Standards:
+- All files: lowercase with underscores
+- Classes: PascalCase
+- Functions: snake_case
+- Variables: snake_case
+- Constants: UPPER_CASE
+
+Module Responsibilities:
+- src/models.py: Data models and dataclasses
+- src/api.py: Sleeper API client
+- src/database.py: Firebase/Database operations
+- src/cpr.py: CPR calculation engine
+- src/niv.py: NIV calculation engine
+- src/jaylen.py: AI agent (Jaylen Hendricks)
+- src/utils.py: Shared utilities
+- mcp/client.py: MCP client utilities
+- mcp/firebase_server.py: Firebase MCP wrapper
+- mcp/sleeper_server.py: Custom Sleeper MCP server
+- scripts/pipeline.py: Main data processing pipeline
+- scripts/fetch.py: Data fetching operations
+- scripts/calculate.py: Calculation operations
+- scripts/test.py: System testing
+- scripts/deploy.py: Deployment utilities
+
+This structure is the golden standard for CPR-NFL project organization.

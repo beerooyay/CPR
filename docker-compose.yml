@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  cpr-nfl:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - ENVIRONMENT=production
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
