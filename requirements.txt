@@ -11,17 +11,10 @@ firebase-admin>=6.2.0
 google-cloud-firestore>=2.13.0
 
 # Async support
-asyncio
 aiohttp>=3.8.0
 
 # API and Backend
 fastapi>=0.104.0
-
-# Data processing
-statistics
-pathlib
-pandas>=2.0.0
-numpy>=1.24.0
 
 # Document analysis (for Jaylen AI)
 Pillow>=10.0.0

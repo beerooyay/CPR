@@ -59,6 +59,11 @@ firebase-debug.*.log
 # Node modules (if using npm)
 node_modules/
 
+# TypeScript compiled artifacts
+functions/lib/
+functions/*.js
+functions/*.js.map
+
 # Coverage reports
 .coverage
 htmlcov/
