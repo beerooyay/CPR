@@ -64,14 +64,6 @@
                 </div>
             </div>
 
-            <div class="mode-container">
-                <div class="mode-label">ALVARADO MODE</div>
-                <div class="mode-buttons">
-                    <button class="mode-button active" data-mode="salary">SALARY</button>
-                    <button class="mode-button" data-mode="performance">PERFORMANCE</button>
-                    <button class="mode-button" data-mode="hybrid">HYBRID</button>
-                </div>
-            </div>
 
             <div id="rankings-container" class="scroll-container"></div>
         </div>
@@ -95,9 +87,9 @@
         <!-- Chat Input -->
         <div class="chat-input-container">
             <div class="glass-input-wrapper">
-                <textarea id="chat-input" placeholder="ASK JAYLEN ABOUT YOUR LEAGUE..." maxlength="500"></textarea>
-                <input type="file" id="file-upload" accept="image/*,.pdf,.csv" style="display: none;" onchange="handleFileUpload(event)">
+                <input type="file" id="file-upload" accept="image/*,.pdf,.csv,.txt,.json" style="display: none;" onchange="handleFileUpload(event)">
                 <button class="file-button" onclick="document.getElementById('file-upload').click()"><i class="fa-solid fa-paperclip"></i></button>
+                <textarea id="chat-input" placeholder="ASK JAYLEN ABOUT YOUR LEAGUE..." maxlength="500"></textarea>
                 <button id="send-button" onclick="sendMessage()"><i class="fa-solid fa-arrow-right"></i></button>
             </div>
         </div>
@@ -130,11 +122,11 @@
         // Firebase config
         const firebaseConfig = {
             apiKey: "AIzaSyBFKbtnje97D15OMa2URhDGIwt2Zf0XMTo",
-            authDomain: "cpr-app-54c15.firebaseapp.com",
-            projectId: "cpr-app-54c15",
-            storageBucket: "cpr-app-54c15.firebasestorage.app",
-            messagingSenderId: "404741325449",
-            appId: "1:404741325449:web:041ab6e7bab280f0867c58",
+            authDomain: "cpr-nfl.firebaseapp.com",
+            projectId: "cpr-nfl",
+            storageBucket: "cpr-nfl.firebasestorage.app",
+            messagingSenderId: "585991449153",
+            appId: "1:585991449153:web:041ab6e7bab280f0867c58",
             measurementId: "G-ZE6EFEDVS7"
         };
 

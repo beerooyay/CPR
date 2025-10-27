@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from api import SleeperAPI
 from cpr import CPREngine
+from niv import NIVEngine
 from database import Database, LocalDatabase
 from models import LeagueAnalysis
 from team_extraction import LegionTeamExtractor
@@ -55,12 +56,24 @@ class RealCPRPipeline:
             'current_season': 2025
         }, league_id)
         
+        # Initialize NIV engine
+        self.niv_engine = NIVEngine({
+            'niv_weights': {
+                'positional_niv': 0.25,
+                'market_niv': 0.25,
+                'explosive_niv': 0.25,
+                'consistency_niv': 0.25
+            },
+            'current_season': 2025
+        }, league_id)
+        
         # Initialize Legion team extractor
         self.team_extractor = LegionTeamExtractor(league_id)
         
         logger.info(f"🚀 REAL CPR Pipeline initialized for league {league_id}")
         logger.info(f"Database: {'Local' if use_local_db else 'Firebase'}")
         logger.info("🧠 Using REVOLUTIONARY algorithms: Ingram (HHI), Alvarado (Shapley/ADP), Zion (4D Tensor)")
+        logger.info("📊 NIV engine initialized for player value analysis")
     
     def fetch_data(self) -> dict:
         """Fetch all data from Sleeper API with Legion team integration"""
@@ -108,20 +121,44 @@ class RealCPRPipeline:
             logger.error(f"❌ Failed to calculate REAL CPR: {e}")
             raise
     
-    def save_results(self, cpr_results: dict, league_data: dict) -> bool:
+    def calculate_niv(self, teams: list, players: dict) -> dict:
+        """Calculate NIV rankings using REAL algorithms"""
+        logger.info("📊 Calculating REAL NIV rankings...")
+        
+        try:
+            niv_results = self.niv_engine.calculate_league_niv(teams, players)
+            
+            logger.info(f"✅ REAL NIV calculated for {len(niv_results['rankings'])} players")
+            logger.info(f"   Algorithm version: {niv_results.get('algorithm_version', 'Unknown')}")
+            
+            return niv_results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to calculate REAL NIV: {e}")
+            raise
+    
+    def save_results(self, cpr_results: dict, niv_results: dict, league_data: dict) -> bool:
         """Save results to database"""
-        logger.info("💾 Saving REAL CPR results to database...")
+        logger.info("💾 Saving REAL CPR and NIV results to database...")
         
         try:
             # Save CPR rankings
-            success = self.db.save_cpr_rankings(self.league_id, cpr_results['rankings'])
+            cpr_success = self.db.save_cpr_rankings(self.league_id, cpr_results['rankings'])
             
-            if success:
+            # Save NIV rankings
+            niv_success = self.db.save_niv_data(self.league_id, niv_results['rankings'])
+            
+            if cpr_success:
                 logger.info("✅ REAL CPR rankings saved to database")
             else:
                 logger.warning("⚠️ Failed to save REAL CPR rankings")
+                
+            if niv_success:
+                logger.info("✅ REAL NIV rankings saved to database")
+            else:
+                logger.warning("⚠️ Failed to save REAL NIV rankings")
             
-            return success
+            return cpr_success and niv_success
             
         except Exception as e:
             logger.error(f"❌ Failed to save results: {e}")
@@ -193,8 +230,14 @@ class RealCPRPipeline:
                 league_data['players']
             )
             
-            # Step 3: Save results
-            save_success = self.save_results(cpr_results, league_data)
+            # Step 3: Calculate REAL NIV
+            niv_results = self.calculate_niv(
+                league_data['teams'],
+                league_data['players']
+            )
+            
+            # Step 4: Save results (pass raw objects, not serialized data)
+            save_success = self.save_results(cpr_results, niv_results, league_data)
             
             # Step 4: Generate report
             report = self.generate_report(cpr_results, league_data)
@@ -210,6 +253,7 @@ class RealCPRPipeline:
             return {
                 'success': True,
                 'cpr_results': cpr_results,
+                'niv_results': niv_results,
                 'league_data': league_data,
                 'report': report,
                 'report_path': str(report_path),
@@ -262,8 +306,8 @@ def main():
         # Show top 3 teams with REAL algorithm breakdown
         print("\n🏆 TOP 3 REAL CPR RANKINGS:")
         for i, team in enumerate(results['cpr_results']['rankings'][:3], 1):
-            print(f"{i}. {team['team_name']} - CPR: {team['cpr']:.3f} ({team['wins']}-{team['losses']})")
-            print(f"   Ingram: {team['ingram']:.3f} | Alvarado: {team['alvarado']:.3f} | Zion: {team['zion']:.3f}")
+            print(f"{i}. {team.team_name} - CPR: {team.cpr:.3f} ({team.wins}-{team.losses})")
+            print(f"   Ingram: {team.ingram:.3f} | Alvarado: {team.alvarado:.3f} | Zion: {team.zion:.3f}")
         
         print("\n🧠 REVOLUTIONARY ALGORITHMS USED:")
         print("• Ingram Index: HHI-based positional balance")

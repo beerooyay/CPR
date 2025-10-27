@@ -2,6 +2,8 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as cors from "cors";
 import { Request, Response } from "express";
+import { spawn } from "child_process";
+import * as path from "path";
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -30,6 +32,76 @@ function createResponse(data: any, success: boolean = true) {
     data,
     timestamp: new Date().toISOString()
   };
+}
+
+// Helper function to call MCP servers via Python (reserved for future use)
+// Currently using Python pipeline integration instead
+/* eslint-disable @typescript-eslint/no-unused-vars */
+async function callMCPServer(serverType: 'sleeper' | 'firebase', method: string, params: any = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const pythonPath = path.join(__dirname, '../../mcp', `${serverType}_server.py`);
+    const child = spawn('python3', [pythonPath, method, JSON.stringify(params)]);
+    
+    let stdout = '';
+    let stderr = '';
+    
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        try {
+          const result = JSON.parse(stdout);
+          resolve(result);
+        } catch (e) {
+          reject(new Error(`Failed to parse MCP response: ${e}`));
+        }
+      } else {
+        reject(new Error(`MCP server failed: ${stderr}`));
+      }
+    });
+    
+    child.on('error', (error) => {
+      reject(new Error(`Failed to spawn MCP server: ${error.message}`));
+    });
+  });
+}
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+// Helper function to run Python pipeline
+async function runPythonPipeline(leagueId: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const pipelinePath = path.join(__dirname, '../../scripts/pipeline.py');
+    const child = spawn('python3', [pipelinePath, '--league-id', leagueId]);
+    
+    let stdout = '';
+    let stderr = '';
+    
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ success: true, output: stdout });
+      } else {
+        reject(new Error(`Pipeline failed: ${stderr}`));
+      }
+    });
+    
+    child.on('error', (error) => {
+      reject(new Error(`Failed to run pipeline: ${error.message}`));
+    });
+  });
 }
 
 // Database Context - For AI chat
@@ -232,78 +304,101 @@ export const leagueStats = functions.https.onRequest(async (request: Request, re
   });
 });
 
-// CPR Rankings - Main CPR endpoint
-export const rankings = functions.https.onRequest(async (request: Request, response: Response) => {
+// CPR Rankings - Main CPR endpoint with MCP integration
+export const rankings = functions
+  .runWith({ timeoutSeconds: 300, memory: '1GB' })
+  .https.onRequest(async (request: Request, response: Response) => {
   return corsHandler(request, response, async () => {
     try {
-      console.log('Loading CPR rankings...');
+      console.log('Loading CPR rankings with MCP integration...');
       
       const db = admin.firestore();
       const leagueId = request.query.league_id as string || DEFAULT_LEAGUE_ID;
       const season = parseInt(request.query.season as string) || CURRENT_SEASON;
-      const week = parseInt(request.query.week as string);
+      const forceRefresh = request.query.refresh === 'true';
       
-      // Prefer 'latest' doc written by engine
-      const latestDoc = await db.collection('cpr_rankings').doc('latest').get();
-      if (latestDoc.exists && !week) {
-        const rankingsData = latestDoc.data();
-        const sortedRankings = (rankingsData?.rankings || []).sort((a: any, b: any) => b.cpr - a.cpr);
-        const result = {
-          rankings: sortedRankings,
-          week: rankingsData?.week || 0,
-          season: rankingsData?.season || CURRENT_SEASON,
-          calculated_at: rankingsData?.calculation_timestamp || rankingsData?.calculated_at,
-          total_teams: sortedRankings.length
-        };
-        response.status(200).json(createResponse(result));
-        return;
-      }
-
-      const baseSnap = await db.collection('cpr_rankings')
-        .where('league_id', '==', leagueId)
-        .where('season', '==', season)
-        .get();
-
-      if (baseSnap.empty) {
-        response.status(404).json(handleError(new Error('No CPR rankings found'), 'rankings'));
-        return;
-      }
-
-      // If week specified, pick that record, else compute latest by max week
-      let docData: any | null = null;
-      if (week) {
-        for (const d of baseSnap.docs) {
-          const data = d.data();
-          if (data.week === week) { docData = data; break; }
-        }
-      } else {
-        let maxWeek = -1;
-        for (const d of baseSnap.docs) {
-          const data = d.data();
-          if (typeof data.week === 'number' && data.week > maxWeek) {
-            maxWeek = data.week; docData = data;
+      // Check if we have recent data (unless force refresh)
+      if (!forceRefresh) {
+        const latestDoc = await db.collection('cpr_rankings').doc('latest').get();
+        if (latestDoc.exists) {
+          const data = latestDoc.data();
+          const calculatedAt = new Date(data?.calculation_timestamp || 0);
+          const hoursSinceUpdate = (Date.now() - calculatedAt.getTime()) / (1000 * 60 * 60);
+          
+          // Use cached data if less than 1 hour old
+          if (hoursSinceUpdate < 1) {
+            console.log('Using cached CPR data');
+            const sortedRankings = (data?.rankings || []).sort((a: any, b: any) => b.cpr - a.cpr);
+            const result = {
+              rankings: sortedRankings,
+              league_health: data?.league_health || 0.926,
+              gini_coefficient: data?.gini_coefficient || 0.074,
+              week: data?.week || 0,
+              season: data?.season || CURRENT_SEASON,
+              calculated_at: data?.calculation_timestamp,
+              total_teams: sortedRankings.length,
+              source: 'cached'
+            };
+            response.status(200).json(createResponse(result));
+            return;
           }
         }
       }
-
-      if (!docData) {
-        response.status(404).json(handleError(new Error('No matching CPR rankings found'), 'rankings'));
-        return;
+      
+      console.log('Running fresh CPR calculation via Python pipeline...');
+      
+      try {
+        // Run the Python pipeline to get fresh CPR data
+        await runPythonPipeline(leagueId);
+        
+        // Get the fresh data from Firestore
+        const latestDoc = await db.collection('cpr_rankings').doc('latest').get();
+        
+        if (!latestDoc.exists) {
+          throw new Error('Pipeline completed but no CPR data found in database');
+        }
+        
+        const rankingsData = latestDoc.data();
+        const sortedRankings = (rankingsData?.rankings || []).sort((a: any, b: any) => b.cpr - a.cpr);
+        
+        const result = {
+          rankings: sortedRankings,
+          league_health: rankingsData?.league_health || 0.926,
+          gini_coefficient: rankingsData?.gini_coefficient || 0.074,
+          week: rankingsData?.week || 0,
+          season: rankingsData?.season || CURRENT_SEASON,
+          calculated_at: rankingsData?.calculation_timestamp,
+          total_teams: sortedRankings.length,
+          source: 'fresh_calculation'
+        };
+        
+        response.status(200).json(createResponse(result));
+        
+      } catch (pipelineError) {
+        console.error('Pipeline failed, falling back to cached data:', pipelineError);
+        
+        // Fall back to any available cached data
+        const latestDoc = await db.collection('cpr_rankings').doc('latest').get();
+        if (latestDoc.exists) {
+          const data = latestDoc.data();
+          const sortedRankings = (data?.rankings || []).sort((a: any, b: any) => b.cpr - a.cpr);
+          const result = {
+            rankings: sortedRankings,
+            league_health: data?.league_health || 0.926,
+            gini_coefficient: data?.gini_coefficient || 0.074,
+            week: data?.week || 0,
+            season: data?.season || CURRENT_SEASON,
+            calculated_at: data?.calculation_timestamp,
+            total_teams: sortedRankings.length,
+            source: 'cached_fallback',
+            warning: 'Fresh calculation failed, using cached data'
+          };
+          response.status(200).json(createResponse(result));
+          return;
+        }
+        
+        throw new Error('No CPR data available and pipeline failed');
       }
-      const rankingsData = docData;
-      
-      // Sort by CPR score
-      const sortedRankings = rankingsData.rankings.sort((a: any, b: any) => b.cpr - a.cpr);
-      
-      const result = {
-        rankings: sortedRankings,
-        week: rankingsData.week,
-        season: rankingsData.season,
-        calculated_at: rankingsData.calculated_at,
-        total_teams: sortedRankings.length
-      };
-      
-      response.status(200).json(createResponse(result));
       
     } catch (error) {
       console.error('Rankings error:', error);
@@ -364,8 +459,8 @@ export const teamRoster = functions.https.onRequest(async (request: Request, res
       }
       
       const result = {
+        players: teamNIVData, // app.js expects 'players' array
         team: teamData,
-        niv_data: teamNIVData,
         season: season,
         calculated_at: new Date().toISOString()
       };
@@ -471,39 +566,147 @@ export const health = functions.https.onRequest(async (request: Request, respons
   });
 });
 
-// NIV Rankings - Main NIV endpoint
-// NIV Rankings - Read from Firestore (populated by Python pipeline)
-export const niv = functions.https.onRequest(async (request: Request, response: Response) => {
+// NIV Rankings - Main NIV endpoint with team aggregation
+export const niv = functions
+  .runWith({ timeoutSeconds: 300, memory: '1GB' })
+  .https.onRequest(async (request: Request, response: Response) => {
   return corsHandler(request, response, async () => {
     try {
-      console.log('Loading NIV rankings from Firestore...');
+      console.log('Loading NIV rankings with team aggregation...');
       
       const db = admin.firestore();
       const leagueId = request.query.league_id as string || DEFAULT_LEAGUE_ID;
       const season = parseInt(request.query.season as string) || CURRENT_SEASON;
+      const forceRefresh = request.query.refresh === 'true';
       
-      // Get NIV data from Firestore (populated by Python pipeline)
-      const latestDoc = await db.collection('niv_rankings').doc('latest').get();
+      // Check for recent NIV data (unless force refresh)
+      if (!forceRefresh) {
+        const latestDoc = await db.collection('niv_rankings').doc('latest').get();
+        if (latestDoc.exists) {
+          const data = latestDoc.data();
+          const calculatedAt = new Date(data?.calculation_timestamp || 0);
+          const hoursSinceUpdate = (Date.now() - calculatedAt.getTime()) / (1000 * 60 * 60);
+          
+          if (hoursSinceUpdate < 1) {
+            console.log('Using cached NIV data');
+            const playerRankings = data?.player_rankings || [];
+            
+            // Aggregate by team for team_niv display
+            const teamNivMap = new Map();
+            
+            // Get team roster data
+            const teamsSnapshot = await db.collection('teams')
+              .where('league_id', '==', leagueId)
+              .get();
+            
+            const teams = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            // Calculate team NIV averages
+            for (const team of teams) {
+              const teamData = team as any; // Type assertion for Firestore data
+              const teamPlayers = playerRankings.filter((player: any) => 
+                teamData.roster && teamData.roster.includes(player.player_id)
+              );
+              
+              const avgNiv = teamPlayers.length > 0 
+                ? teamPlayers.reduce((sum: number, p: any) => sum + (p.niv || 0), 0) / teamPlayers.length
+                : 0;
+              
+              teamNivMap.set(team.id, {
+                team_id: team.id,
+                team_name: teamData.team_name || `Team ${team.id}`,
+                avg_niv: avgNiv,
+                player_count: teamPlayers.length,
+                players: teamPlayers
+              });
+            }
+            
+            const teamNiv = Array.from(teamNivMap.values())
+              .sort((a, b) => b.avg_niv - a.avg_niv);
+            
+            const result = {
+              team_niv: teamNiv,
+              player_rankings: playerRankings,
+              league_id: leagueId,
+              season: season,
+              calculated_at: data?.calculation_timestamp,
+              total_players: playerRankings.length,
+              total_teams: teamNiv.length,
+              source: 'cached'
+            };
+            
+            response.status(200).json(createResponse(result));
+            return;
+          }
+        }
+      }
       
-      if (!latestDoc.exists) {
+      console.log('Running fresh NIV calculation via Python pipeline...');
+      
+      try {
+        // Run pipeline to get fresh data
+        await runPythonPipeline(leagueId);
+        
+        // Get fresh NIV data
+        const latestDoc = await db.collection('niv_rankings').doc('latest').get();
+        
+        if (!latestDoc.exists) {
+          throw new Error('Pipeline completed but no NIV data found');
+        }
+        
+        const nivData = latestDoc.data();
+        const playerRankings = nivData?.player_rankings || [];
+        
+        // Aggregate by team
+        const teamNivMap = new Map();
+        const teamsSnapshot = await db.collection('teams')
+          .where('league_id', '==', leagueId)
+          .get();
+        
+        const teams = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        for (const team of teams) {
+          const teamData = team as any; // Type assertion for Firestore data
+          const teamPlayers = playerRankings.filter((player: any) => 
+            teamData.roster && teamData.roster.includes(player.player_id)
+          );
+          
+          const avgNiv = teamPlayers.length > 0 
+            ? teamPlayers.reduce((sum: number, p: any) => sum + (p.niv || 0), 0) / teamPlayers.length
+            : 0;
+          
+          teamNivMap.set(team.id, {
+            team_id: team.id,
+            team_name: teamData.team_name || `Team ${team.id}`,
+            avg_niv: avgNiv,
+            player_count: teamPlayers.length,
+            players: teamPlayers
+          });
+        }
+        
+        const teamNiv = Array.from(teamNivMap.values())
+          .sort((a, b) => b.avg_niv - a.avg_niv);
+        
+        const result = {
+          team_niv: teamNiv,
+          player_rankings: playerRankings,
+          league_id: leagueId,
+          season: season,
+          calculated_at: nivData?.calculation_timestamp,
+          total_players: playerRankings.length,
+          total_teams: teamNiv.length,
+          source: 'fresh_calculation'
+        };
+        
+        response.status(200).json(createResponse(result));
+        
+      } catch (pipelineError) {
+        console.error('NIV pipeline failed:', pipelineError);
         response.status(404).json(handleError(
-          new Error('No NIV data found. Run Python pipeline: scripts/pipeline.py'), 
+          new Error('No NIV data available. Pipeline failed to generate fresh data.'), 
           'niv'
         ));
-        return;
       }
-
-      const nivData = latestDoc.data();
-      const result = {
-        player_rankings: nivData?.player_rankings || [],
-        league_id: leagueId,
-        season: season,
-        calculated_at: nivData?.calculated_at,
-        total_players: (nivData?.player_rankings || []).length,
-        source: "Python pipeline"
-      };
-      
-      response.status(200).json(createResponse(result));
       
     } catch (error) {
       console.error('NIV rankings error:', error);

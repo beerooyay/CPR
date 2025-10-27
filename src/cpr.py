@@ -240,7 +240,8 @@ class CPREngine:
         insights = self._generate_real_insights(cpr_metrics, teams, players)
         
         result = {
-            'rankings': [self._serialize_cpr_metrics(team) for team in cpr_metrics],
+            'rankings': cpr_metrics,  # Raw CPRMetrics objects for database
+            'rankings_serialized': [self._serialize_cpr_metrics(team) for team in cpr_metrics],  # Serialized for API
             'league_health': league_health,
             'gini_coefficient': gini_coefficient,
             'calculation_timestamp': datetime.now().isoformat(),

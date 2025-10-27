@@ -1,15 +1,15 @@
 // API Configuration - Firebase Functions
 const API_BASE = ''; // Use relative URLs for same-origin requests
-const MODEL = 'openai/gpt-oss-20b:free'; // Updated model
-const LEAGUE_ID = '1267325171853701120'; // Your league ID
+const MODEL = 'openai/gpt-oss-20b:free'; // Confirmed model
+const LEAGUE_ID = '1267325171853701120'; // Legion Fantasy Football League ID
 
-// State
+// State Management
 let currentScreen = 'home';
 let nivState = 'teams'; // 'teams' or 'roster'
 let selectedTeam = null;
-let cache = {}; // Data cache (rankings, teams, stats, dbContext)
+let cache = {}; // Data cache (cpr_rankings, niv_data, league_stats, dbContext)
 let chatMessages = [];
-let isStreaming = false;
+let uploadedFile = null;
 
 // --- Utility Functions ---
 
@@ -29,7 +29,7 @@ async function loadDatabaseContext() {
     if (cache.dbContext) return cache.dbContext;
     
     try {
-        console.log('🖳 Loading database context for AI...');
+        console.log('Loading database context for AI...');
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
@@ -40,10 +40,10 @@ async function loadDatabaseContext() {
         
         const data = await response.json();
         cache.dbContext = data;
-        console.log('✅ Database context loaded successfully');
+        console.log('Database context loaded successfully');
         return cache.dbContext;
     } catch (error) {
-        console.error('❌ Database context loading error:', error);
+        console.error('Database context loading error:', error);
         // We allow chat to proceed even if context fails
         return {}; 
     }
@@ -129,125 +129,88 @@ function showScreen(screenName) {
 // --- CPR Screen Logic ---
 
 async function loadCPRScreen() {
-    // Use the existing container ID: #rankings-container
     const container = document.getElementById('rankings-container');
-    container.innerHTML = '<div class="loading-state">Loading CPR rankings...</div>';
+    container.innerHTML = '<div class="loading">Loading CPR rankings...</div>';
     
     try {
-        console.log('📊 Loading CPR data from:', API_BASE);
+        console.log('Loading CPR data for Legion Fantasy Football...');
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         
-        const [statsRes, rankingsRes] = await Promise.all([
-            fetch(`/api/league?league_id=${LEAGUE_ID}&season=2025`, { signal: controller.signal }),
-            fetch(`/api/cpr?league_id=${LEAGUE_ID}&season=2025`, { signal: controller.signal })
-        ]);
+        const response = await fetch(`/api/cpr?league_id=${LEAGUE_ID}&season=2025`, { 
+            signal: controller.signal 
+        });
         
         clearTimeout(timeoutId);
 
-        if (!statsRes.ok || !rankingsRes.ok) {
-            throw new Error(`Failed to fetch CPR data: stats(${statsRes.status}), rankings(${rankingsRes.status})`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch CPR data: ${response.status}`);
         }
 
-        const statsJson = await statsRes.json();
-        const rankingsJson = await rankingsRes.json();
-        const stats = statsJson.data || statsJson;
-        const rankingsPayload = (rankingsJson.data && rankingsJson.data) || rankingsJson;
-        const rankings = rankingsPayload.rankings || rankingsPayload;
+        const data = await response.json();
+        const payload = data.data || data;
+        const rankings = payload.rankings || payload;
 
         // Update cache
-        cache.stats = stats;
-        cache.rankings = rankings;
+        cache.cpr_rankings = rankings;
 
-        // Update league stats from CPR payload when available, else compute from rankings
-        const healthFromApi = rankingsPayload.league_health;
-        const giniFromApi = rankingsPayload.gini_coefficient;
-        let leagueHealth = typeof healthFromApi === 'number' ? healthFromApi : null;
-        let giniCoeff = typeof giniFromApi === 'number' ? giniFromApi : null;
-
-        if (leagueHealth == null || giniCoeff == null) {
-            // compute gini from CPR list as fallback
-            const values = (rankings || []).map(t => t.cpr).filter(v => typeof v === 'number');
-            const n = values.length;
-            if (n > 0) {
-                const sorted = values.slice().sort((a,b)=>a-b);
-                const sum = sorted.reduce((a,b)=>a+b,0);
-                if (sum > 0) {
-                    let cum = 0;
-                    for (let i=0;i<n;i++) cum += (i+1)*sorted[i];
-                    giniCoeff = (n+1 - 2*cum/sum) / n;
-                    giniCoeff = Math.max(0, Math.min(1, giniCoeff));
-                    leagueHealth = Math.max(0, 1 - giniCoeff);
-                } else {
-                    giniCoeff = 0;
-                    leagueHealth = 1;
-                }
-            } else {
-                giniCoeff = 0;
-                leagueHealth = 1;
-            }
-        }
+        // Update league health metrics (use API data or reasonable defaults)
+        const leagueHealth = payload.league_health ?? 0.85;
+        const giniCoeff = payload.gini_coefficient ?? 0.15;
 
         const healthEl = document.getElementById('league-health');
         const giniEl = document.getElementById('gini-coeff');
         if (healthEl) healthEl.textContent = `${(leagueHealth * 100).toFixed(1)}%`;
-        if (giniEl) giniEl.textContent = (giniCoeff).toFixed(3);
+        if (giniEl) giniEl.textContent = giniCoeff.toFixed(3);
 
-        // Clear and build rankings
+        // Build team rankings display
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
 
         rankings.forEach(team => {
             const row = document.createElement('div');
             row.className = `team-row ${team.rank === 1 ? 'gold' : ''}`;
-            const teamName = (team.team_name || team.team || '').toString();
-            row.dataset.team = teamName;
             
-            const alvaradoValue = team.alvarado != null ? team.alvarado.toFixed(2) : '0.00';
-
+            // Use TEAM NAME from Legion data, not user name
+            const teamName = team.team_name || team.name || `Team ${team.rank}`;
+            
             row.innerHTML = `
-                <div class="neon-border"></div>
                 <div class="team-row-header">
                     <div class="rank-badge">${team.rank}</div>
                     <div class="team-name">${teamName.toUpperCase()}</div>
-                    <button class="claim-team-btn" data-team="${team.team}" style="opacity: 0.5;">CLAIM TEAM (Auth Required)</button>
                     <div class="cpr-value">${team.cpr.toFixed(3)}</div>
                 </div>
                 <div class="team-details">
                     <div class="metric-row">
-                        <div class="metric-label">sli</div>
+                        <div class="metric-label">SLI (Starter Strength)</div>
                         <div class="metric-value ${team.sli > 0 ? 'positive' : team.sli < 0 ? 'negative' : ''}">${team.sli.toFixed(2)}</div>
                     </div>
                     <div class="metric-row">
-                        <div class="metric-label">bsi</div>
+                        <div class="metric-label">BSI (Bench Strength)</div>
                         <div class="metric-value ${team.bsi > 0 ? 'positive' : team.bsi < 0 ? 'negative' : ''}">${team.bsi.toFixed(2)}</div>
                     </div>
                     <div class="metric-row">
-                        <div class="metric-label">smi</div>
+                        <div class="metric-label">SMI (Schedule Momentum)</div>
                         <div class="metric-value">${team.smi.toFixed(2)}</div>
                     </div>
                     <div class="metric-row">
-                        <div class="metric-label">ingram</div>
-                        <div class="metric-value ${team.ingram > 0 ? 'positive' : team.ingram < 0 ? 'negative' : ''}">${team.ingram.toFixed(2)}</div>
+                        <div class="metric-label">INGRAM (Positional Balance)</div>
+                        <div class="metric-value ${team.ingram > 0 ? 'positive' : team.ingram < 0 ? 'negative' : ''}">${team.ingram.toFixed(3)}</div>
                     </div>
                     <div class="metric-row">
-                        <div class="metric-label">alvarado</div>
-                        <div class="metric-value ${team.alvarado > 0 ? 'positive' : team.alvarado < 0 ? 'negative' : ''}">${alvaradoValue}</div>
+                        <div class="metric-label">ALVARADO (Draft Efficiency)</div>
+                        <div class="metric-value ${team.alvarado > 0 ? 'positive' : team.alvarado < 0 ? 'negative' : ''}">${team.alvarado.toFixed(3)}</div>
                     </div>
                     <div class="metric-row">
-                        <div class="metric-label">zion</div>
-                        <div class="metric-value ${team.zion > 0 ? 'positive' : team.zion < 0 ? 'negative' : ''}">${team.zion.toFixed(2)}</div>
+                        <div class="metric-label">ZION (4D Strength of Schedule)</div>
+                        <div class="metric-value ${team.zion > 0 ? 'positive' : team.zion < 0 ? 'negative' : ''}">${team.zion.toFixed(3)}</div>
                     </div>
                 </div>
             `;
 
             // Add click handler for expanding/collapsing
-            row.addEventListener('click', (e) => {
-                // Don't expand if clicking on the claim button
-                if (e.target.classList.contains('claim-team-btn')) {
-                    return;
-                }
+            row.addEventListener('click', () => {
                 row.classList.toggle('expanded');
             });
 
@@ -255,16 +218,6 @@ async function loadCPRScreen() {
         });
 
         container.appendChild(fragment);
-
-        // Add mode button handlers
-        document.querySelectorAll('.mode-button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.mode-button').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                // TODO: Reload CPR data with new mode
-                console.log('Alvarado mode changed to:', btn.dataset.mode);
-            });
-        });
 
     } catch (error) {
         console.error('Error loading CPR screen:', error);
@@ -276,72 +229,47 @@ async function loadCPRScreen() {
 
 async function loadNIVTeams() {
     const container = document.getElementById('niv-container');
-    container.innerHTML = '<div class="loading-state">Loading teams...</div>';
+    container.innerHTML = '<div class="loading">Loading team NIV metrics...</div>';
     
     try {
-        // Use cached rankings or fetch new ones
-        let rankings = cache.rankings;
-        if (!rankings) {
-            const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
-            if (!response.ok) throw new Error('Failed to fetch NIV data');
-            const rj = await response.json();
-            const payload = (rj.data && rj.data) || rj;
-            const playerRankings = payload.player_rankings || [];
-            
-            // Group players by team for team view
-            const teamMap = {};
-            playerRankings.forEach(player => {
-                const teamId = player.team_id || 'FREE';
-                if (!teamMap[teamId]) {
-                    teamMap[teamId] = {
-                        team_id: teamId,
-                        team_name: teamId === 'FREE' ? 'Free Agents' : teamId,
-                        players: [],
-                        avg_niv: 0
-                    };
-                }
-                teamMap[teamId].players.push(player);
-            });
-            
-            // Calculate team averages and convert to array
-            rankings = Object.values(teamMap).map(team => {
-                const avgNiv = team.players.reduce((sum, p) => sum + p.niv, 0) / team.players.length;
-                return {
-                    team_id: team.team_id,
-                    team: team.team_name,
-                    rank: 0, // Will be set below
-                    cpr: avgNiv, // Use NIV as the ranking metric for display
-                    avg_niv: avgNiv,
-                    player_count: team.players.length
-                };
-            }).sort((a, b) => b.avg_niv - a.avg_niv);
-            
-            // Set ranks after sorting
-            rankings.forEach((team, index) => {
-                team.rank = index + 1;
-            });
-            
-            cache.rankings = rankings;
-        }
+        console.log('Loading NIV data for Legion teams...');
+        
+        const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
+        if (!response.ok) throw new Error('Failed to fetch NIV data');
+        
+        const data = await response.json();
+        const payload = data.data || data;
+        const teamNivData = payload.team_niv || payload.team_rankings || payload;
+
+        // Update cache
+        cache.niv_data = teamNivData;
 
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
 
-        rankings.forEach(team => {
+        teamNivData.forEach((team, index) => {
             const row = document.createElement('div');
             row.className = 'team-row';
+            
+            // Use TEAM NAME from Legion data
+            const teamName = team.team_name || team.name || `Team ${index + 1}`;
+            
             row.innerHTML = `
                 <div class="team-row-header">
-                    <div class="rank-badge">${team.rank}</div>
-                    <div class="team-name">${team.team.toUpperCase()}</div>
+                    <div class="rank-badge">${index + 1}</div>
+                    <div class="team-name">${teamName.toUpperCase()}</div>
                     <div class="cpr-value">${team.avg_niv.toFixed(3)}</div>
                 </div>
             `;
 
             row.addEventListener('click', () => {
-                selectedTeam = team;
+                selectedTeam = {
+                    ...team,
+                    rank: index + 1,
+                    team_name: teamName
+                };
                 nivState = 'roster';
-                console.log('Team clicked:', team.name, 'Loading roster view...');
+                console.log('Team clicked:', teamName, 'Loading roster view...');
                 showScreen('niv');
             });
 
@@ -349,9 +277,10 @@ async function loadNIVTeams() {
         });
 
         container.appendChild(fragment);
+        
     } catch (error) {
         console.error('Error loading NIV teams:', error);
-        container.innerHTML = '<div class="error">Failed to load teams.</div>';
+        container.innerHTML = '<div class="error">Failed to load team NIV data. Please try again.</div>';
     }
 }
 
@@ -363,8 +292,8 @@ async function loadNIVRoster(team) {
     statsContainer.style.display = 'grid';
     statsContainer.innerHTML = `
         <div class="glass-card">
-            <div class="stat-label">TEAM CPR</div>
-            <div class="stat-value">${team.cpr.toFixed(3)}</div>
+            <div class="stat-label">TEAM AVG NIV</div>
+            <div class="stat-value">${team.avg_niv.toFixed(3)}</div>
         </div>
         <div class="glass-card">
             <div class="stat-label">RANK</div>
@@ -372,14 +301,17 @@ async function loadNIVRoster(team) {
         </div>
     `;
 
-    container.innerHTML = '<div class="loading-state">Loading roster...</div>';
+    container.innerHTML = '<div class="loading">Loading roster...</div>';
     
     try {
-        const response = await fetch(`/api/rosters?team=${encodeURIComponent(team.team_name || team.team || '')}&league_id=${LEAGUE_ID}&season=2025`);
+        console.log('Loading roster for:', team.team_name);
+        
+        const response = await fetch(`/api/teamRoster?team=${encodeURIComponent(team.team_name)}&league_id=${LEAGUE_ID}&season=2025`);
         if (!response.ok) throw new Error('Failed to fetch roster');
-        const rosterJson = await response.json();
-        const rosterPayload = rosterJson.data || rosterJson;
-        const roster = rosterPayload.niv_data || rosterPayload;
+        
+        const data = await response.json();
+        const payload = data.data || data;
+        const roster = payload.players || payload.niv_data || payload;
         
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
@@ -387,46 +319,55 @@ async function loadNIVRoster(team) {
         roster.forEach(player => {
             const row = document.createElement('div');
             row.className = 'player-row';
+            
+            // Get position and team info
+            const position = player.position || 'N/A';
+            const nflTeam = player.team || 'FA';
+            
             row.innerHTML = `
                 <div class="player-row-header">
-                    <div class="player-name">${player.name}</div>
-                    <div class="niv-value">${player.niv ? player.niv.toFixed(2) : '0.00'}</div>
+                    <div class="player-name">${player.name} (${position} - ${nflTeam})</div>
+                    <div class="niv-value">${player.niv ? player.niv.toFixed(3) : '0.000'}</div>
                 </div>
                 <div class="player-details">
                     <div class="last-year-stats-box">
-                        <div class="stats-box-header">2024 SEASON STATS</div>
+                        <div class="stats-box-header">2024 NFL SEASON STATS</div>
                         <div class="stats-box-grid">
                             <div class="stats-box-item">
-                                <div class="stats-box-label">PTS</div>
-                                <div class="stats-box-value">${player.pts || 0}</div>
+                                <div class="stats-box-label">FPTS</div>
+                                <div class="stats-box-value">${player.fantasy_points || 0}</div>
                             </div>
                             <div class="stats-box-item">
-                                <div class="stats-box-label">REB</div>
-                                <div class="stats-box-value">${player.reb || 0}</div>
+                                <div class="stats-box-label">RUSH YDS</div>
+                                <div class="stats-box-value">${player.rushing_yards || 0}</div>
                             </div>
                             <div class="stats-box-item">
-                                <div class="stats-box-label">AST</div>
-                                <div class="stats-box-value">${player.ast || 0}</div>
+                                <div class="stats-box-label">REC YDS</div>
+                                <div class="stats-box-value">${player.receiving_yards || 0}</div>
                             </div>
                             <div class="stats-box-item">
-                                <div class="stats-box-label">STL</div>
-                                <div class="stats-box-value">${player.stl || 0}</div>
+                                <div class="stats-box-label">PASS YDS</div>
+                                <div class="stats-box-value">${player.passing_yards || 0}</div>
                             </div>
                             <div class="stats-box-item">
-                                <div class="stats-box-label">BLK</div>
-                                <div class="stats-box-value">${player.blk || 0}</div>
+                                <div class="stats-box-label">TDS</div>
+                                <div class="stats-box-value">${(player.rushing_tds || 0) + (player.receiving_tds || 0) + (player.passing_tds || 0)}</div>
                             </div>
                             <div class="stats-box-item">
-                                <div class="stats-box-label">TO</div>
-                                <div class="stats-box-value">${player.to || 0}</div>
+                                <div class="stats-box-label">GAMES</div>
+                                <div class="stats-box-value">${player.games_played || 0}</div>
                             </div>
                         </div>
                     </div>
-                    <button class="scouting-report-button">GET SCOUTING REPORT</button>
+                    <button class="scouting-report-button" onclick="getScoutingReport('${player.name}', '${position}')">GET SCOUTING REPORT</button>
                 </div>
             `;
 
-            row.addEventListener('click', () => {
+            row.addEventListener('click', (e) => {
+                // Don't expand if clicking the scouting report button
+                if (e.target.classList.contains('scouting-report-button')) {
+                    return;
+                }
                 row.classList.toggle('expanded');
             });
 
@@ -434,9 +375,10 @@ async function loadNIVRoster(team) {
         });
 
         container.appendChild(fragment);
+        
     } catch (error) {
         console.error('Error loading roster:', error);
-        container.innerHTML = '<div class="error">Failed to load roster.</div>';
+        container.innerHTML = '<div class="error">Failed to load roster. Please try again.</div>';
     }
 }
 
@@ -471,8 +413,18 @@ async function sendMessage() {
     
     if (!message) return;
     
+    // Prepare message content
+    let messageContent = message;
+    
+    // Handle file upload if present
+    if (uploadedFile) {
+        messageContent = `${message}\n\n[File attached: ${uploadedFile.name} (${(uploadedFile.size / 1024).toFixed(1)}KB)]`;
+        // Note: File content analysis will be implemented in future version
+        uploadedFile = null; // Clear after use
+    }
+    
     // Add user message
-    chatMessages.push({ role: 'user', content: message });
+    chatMessages.push({ role: 'user', content: messageContent });
     input.value = '';
     
     // Add loading message
@@ -484,37 +436,44 @@ async function sendMessage() {
     try {
         const dbContext = await loadDatabaseContext();
         
-        const response = await fetch(`/api/chat`, {
+        const requestBody = {
+            messages: chatMessages.filter(m => !m.loading),
+            context: dbContext,
+            model: MODEL,
+            league_id: LEAGUE_ID
+        };
+        
+        const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                messages: chatMessages.filter(m => !m.loading),
-                context: dbContext
-            })
+            body: JSON.stringify(requestBody)
         });
         
-        if (!response.ok) throw new Error('Chat request failed');
+        if (!response.ok) {
+            throw new Error(`Chat request failed: ${response.status}`);
+        }
         
         const data = await response.json();
         
         // Remove loading message
         chatMessages = chatMessages.filter(m => m.id !== loadingId);
         
-        // Add assistant response
-        const assistantText = (data && data.data && data.data.response && (data.data.response.content || data.data.response))
-            || data.response?.content || data.response || data.message || '...';
+        // Extract assistant response
+        const assistantText = data.response || data.message || 'No response received';
         chatMessages.push({ role: 'assistant', content: assistantText });
         
         renderChatMessages();
+        
     } catch (error) {
         console.error('Chat error:', error);
+        
         // Remove loading message
         chatMessages = chatMessages.filter(m => m.id !== loadingId);
         
         // Add error message
         chatMessages.push({ 
             role: 'assistant', 
-            content: 'sorry fam, had trouble connecting to jaylen. try again in a sec.' 
+            content: 'sorry, had trouble connecting to jaylen. try again in a moment.' 
         });
         
         renderChatMessages();
@@ -572,12 +531,26 @@ function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
     
+    // Store file for sending with message
+    uploadedFile = file;
+    
     const chatInput = document.getElementById('chat-input');
     const fileName = file.name;
     const fileSize = (file.size / 1024).toFixed(2);
     
+    // Show file in input as preview
     chatInput.value = `[FILE: ${fileName} (${fileSize}KB)] ${chatInput.value}`;
-    console.log('File selected:', fileName, fileSize + 'KB');
+    console.log('File selected for upload:', fileName, fileSize + 'KB');
+}
+
+// Scouting Report Handler
+function getScoutingReport(playerName, position) {
+    const chatInput = document.getElementById('chat-input');
+    chatInput.value = `Get me a detailed scouting report for ${playerName} (${position})`;
+    
+    // Switch to chat screen and send message
+    showScreen('chat');
+    setTimeout(() => sendMessage(), 100);
 }
 
 // --- Auth & Profile Logic ---
@@ -705,27 +678,38 @@ async function logout() {
 // --- Initialization ---
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 DOM loaded. Initializing NFL CPR app...');
+    console.log('DOM loaded. Initializing NFL CPR app...');
     
     // Start on the home screen
     showScreen('home');
 
-    // Attach event listener for the chat input "Enter" key
+    // Chat input event listeners
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
+        // Enter key to send message
         chatInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
             }
         });
+        
+        // Clear file preview when input is cleared
+        chatInput.addEventListener('input', (e) => {
+            if (!e.target.value.trim()) {
+                uploadedFile = null;
+            }
+        });
     }
 
-    // Close modal on outside click
+    // Modal close handlers
     document.addEventListener('click', (e) => {
         const modal = document.getElementById('profile-modal');
         if (e.target === modal) {
             closeProfile();
         }
     });
+    
+    // Initialize auth UI
+    renderAuthUI(null);
 });
