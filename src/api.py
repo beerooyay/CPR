@@ -88,111 +88,193 @@ class SleeperAPI:
         )
     
     def get_rosters(self) -> List[Team]:
-        """Get team rosters"""
-        data = self._make_request(f"league/{self.league_id}/rosters")
+        """Get team rosters with owner display names and team names."""
+        rosters_data = self._make_request(f"league/{self.league_id}/rosters")
+        # Map owner_id -> display_name and team_name from users endpoint
+        users_data = self._make_request(f"league/{self.league_id}/users")
         
-        teams = []
-        for roster in data:
-            team = Team(
-                team_id=roster["roster_id"],
-                team_name=roster.get("metadata", {}).get("team_name", f"Team {roster['roster_id']}"),
-                owner_name=roster.get("owner_name", "Unknown"),
-                wins=int(roster.get("settings", {}).get("wins", 0)),
-                losses=int(roster.get("settings", {}).get("losses", 0)),
-                ties=int(roster.get("settings", {}).get("ties", 0)),
-                fpts=float(roster.get("settings", {}).get("fpts", 0)),
-                fpts_against=float(roster.get("settings", {}).get("fpts_against", 0)),
-                starters=roster.get("starters", []),
-                roster=roster.get("players", []),
-                bench=[]  # Will be calculated later
-            )
+        owner_map = {}
+        team_name_map = {}
+        try:
+            for user in users_data:
+                owner_id = str(user["user_id"])
+                owner_map[owner_id] = user.get("display_name", "Unknown")
+                # Get team name from user metadata
+                user_meta = user.get("metadata", {}) or {}
+                team_name_map[owner_id] = user_meta.get("team_name", "")
+        except Exception:
+            pass
+
+        teams: List[Team] = []
+        for roster in rosters_data:
+            owner_id = str(roster.get("owner_id", ""))
+            owner_name = owner_map.get(owner_id, "Unknown")
             
-            # Calculate bench players (roster - starters)
+            # Use team name from users metadata, fallback to display name, then roster ID
+            team_name = team_name_map.get(owner_id, "").strip()
+            if not team_name:
+                team_name = f"{owner_name}" if owner_name != "Unknown" else f"Team {roster.get('roster_id')}"
+
+            settings = roster.get("settings", {}) or {}
+            players = roster.get("players", []) or []
+            starters = roster.get("starters", []) or []
+
+            team = Team(
+                team_id=str(roster.get("roster_id")),
+                team_name=team_name,
+                owner_name=owner_name,
+                wins=int(settings.get("wins", 0)),
+                losses=int(settings.get("losses", 0)),
+                ties=int(settings.get("ties", 0)),
+                fpts=float(settings.get("fpts", 0)),
+                fpts_against=float(settings.get("fpts_against", 0)),
+                roster=players,
+                starters=starters,
+                bench=[]
+            )
+
             team.bench = [p for p in team.roster if p not in team.starters]
             teams.append(team)
-        
+
         return teams
     
     def get_players(self, player_ids: List[str]) -> Dict[str, Player]:
         """Get player information for given IDs"""
         players = {}
-        
+
+        def map_pos(pos: Optional[str]) -> Position:
+            if not pos:
+                return Position.WR
+            p = pos.upper()
+            if p in {"QB","RB","WR","TE","K"}:
+                return Position[p]
+            if p in {"DST","DEF"}:
+                return Position.DEF
+            if p in {"DL","DE","DT","LB","OLB","ILB","DB","CB","S"}:
+                return Position.IDP
+            # Fallback
+            return Position.WR
+
         # Get all NFL players (API returns dict, not list)
         all_players_data = self._make_request("players/nfl")
-        
+
         for player_id in player_ids:
             if player_id in all_players_data:
                 player_data = all_players_data[player_id]
-                
-                # Parse position
-                position_str = player_data.get("position", "UNK")
-                try:
-                    position = Position(position_str)
-                except ValueError:
-                    position = Position.QB  # Default fallback
-                
-                # Parse fantasy positions
-                fantasy_positions = []
-                for pos_str in player_data.get("fantasy_positions", [position_str]):
+
+                # Prefer fantasy_positions first
+                fp_list = player_data.get("fantasy_positions") or []
+                fantasy_positions: List[Position] = []
+                for fp in fp_list:
                     try:
-                        fantasy_positions.append(Position(pos_str))
-                    except ValueError:
+                        fantasy_positions.append(map_pos(fp))
+                    except Exception:
                         continue
-                
-                # Parse injury status
+                # Base position
+                position = map_pos(player_data.get("position"))
+                if not fantasy_positions:
+                    fantasy_positions = [position]
+
+                # Injury status
                 injury_str = player_data.get("injury_status", "Active")
                 try:
                     injury_status = InjuryStatus(injury_str)
                 except ValueError:
                     injury_status = InjuryStatus.ACTIVE
-                
+
                 player = Player(
                     player_id=player_id,
-                    name=player_data.get("full_name", "Unknown Player"),
+                    name=player_data.get("full_name") or (player_data.get("first_name","?") + " " + player_data.get("last_name","?") ).strip(),
                     position=position,
-                    team=player_data.get("team", "FA"),
+                    team=player_data.get("team", "FA") or "FA",
                     height=player_data.get("height", ""),
-                    weight=int(player_data.get("weight", 0)),
+                    weight=int(player_data.get("weight", 0) or 0),
                     college=player_data.get("college", ""),
-                    draft_year=int(player_data.get("draft_year", 0)),
-                    draft_round=int(player_data.get("draft_round", 0)),
-                    status=player_data.get("status", "Active"),
+                    draft_year=int(player_data.get("draft_year", 0) or 0),
+                    draft_round=int(player_data.get("draft_round", 0) or 0),
+                    status=player_data.get("status", "Active") or "Active",
                     injury_status=injury_status,
                     fantasy_positions=fantasy_positions
                 )
-                
+
                 players[player_id] = player
         
         return players
     
     def get_player_stats(self, season: int = 2024) -> Dict[str, PlayerStats]:
-        """Get player statistics for a season"""
+        """Get player statistics for a season with fallback to previous season."""
+        seasons_to_try = [season]
+        if season and isinstance(season, int):
+            seasons_to_try.append(season - 1)
+
+        for s in seasons_to_try:
+            try:
+                stats_data = self._make_request(f"players/nfl/{s}/stats")
+                if not isinstance(stats_data, dict) or not stats_data:
+                    raise requests.exceptions.RequestException("empty stats body")
+            except requests.exceptions.RequestException:
+                logger.warning(f"Could not fetch stats for season {s}")
+                continue
+
+            player_stats: Dict[str, PlayerStats] = {}
+            for player_id, stats in stats_data.items():
+                player_stats[player_id] = PlayerStats(
+                    season=s,
+                    games_played=int(stats.get("gp", 0)),
+                    passing_yards=int(stats.get("passing_yds", 0)),
+                    passing_tds=int(stats.get("passing_td", 0)),
+                    passing_ints=int(stats.get("passing_int", 0)),
+                    rushing_yards=int(stats.get("rushing_yds", 0)),
+                    rushing_tds=int(stats.get("rushing_td", 0)),
+                    receptions=int(stats.get("rec", 0)),
+                    receiving_yards=int(stats.get("receiving_yds", 0)),
+                    receiving_tds=int(stats.get("receiving_td", 0)),
+                    targets=int(stats.get("targets", 0)),
+                    fumbles=int(stats.get("fumbles_lost", 0)),
+                    fantasy_points=float(stats.get("fantasy_points_ppr", 0.0))
+                )
+            if player_stats:
+                return player_stats
+
+        # Final fallback: build current-season fantasy points from league matchups
         try:
-            stats_data = self._make_request(f"players/nfl/{season}/stats")
-        except requests.exceptions.RequestException:
-            logger.warning(f"Could not fetch stats for season {season}")
+            current_week = self.get_current_week()
+            if not isinstance(current_week, int) or current_week < 1:
+                return {}
+
+            agg_points: Dict[str, float] = {}
+            games_played: Dict[str, int] = {}
+
+            for w in range(1, current_week + 1):
+                try:
+                    data = self._make_request(f"league/{self.league_id}/matchups/{w}")
+                except requests.exceptions.RequestException:
+                    continue
+                # Each entry corresponds to a team in the week
+                for entry in data:
+                    pts_map = entry.get("players_points") or entry.get("players_points_ppr") or {}
+                    if not isinstance(pts_map, dict):
+                        continue
+                    for pid, pts in pts_map.items():
+                        try:
+                            p = float(pts)
+                        except (TypeError, ValueError):
+                            p = 0.0
+                        agg_points[pid] = agg_points.get(pid, 0.0) + p
+                        games_played[pid] = games_played.get(pid, 0) + 1
+
+            # Build minimal PlayerStats from aggregated points
+            built: Dict[str, PlayerStats] = {}
+            for pid, total in agg_points.items():
+                built[pid] = PlayerStats(
+                    season=season,
+                    games_played=games_played.get(pid, 0),
+                    fantasy_points=round(total, 2)
+                )
+            return built
+        except Exception as e:
+            logger.warning(f"Failed to build stats from matchups: {e}")
             return {}
-        
-        player_stats = {}
-        
-        for player_id, stats in stats_data.items():
-            player_stats[player_id] = PlayerStats(
-                season=season,
-                games_played=int(stats.get("gp", 0)),
-                passing_yards=int(stats.get("passing_yds", 0)),
-                passing_tds=int(stats.get("passing_td", 0)),
-                passing_ints=int(stats.get("passing_int", 0)),
-                rushing_yards=int(stats.get("rushing_yds", 0)),
-                rushing_tds=int(stats.get("rushing_td", 0)),
-                receptions=int(stats.get("rec", 0)),
-                receiving_yards=int(stats.get("receiving_yds", 0)),
-                receiving_tds=int(stats.get("receiving_td", 0)),
-                targets=int(stats.get("targets", 0)),
-                fumbles=int(stats.get("fumbles_lost", 0)),
-                fantasy_points=float(stats.get("fantasy_points_ppr", 0.0))
-            )
-        
-        return player_stats
     
     def get_matchups(self, week: int) -> List[Matchup]:
         """Get matchups for a specific week"""

@@ -88,7 +88,7 @@ class Database:
             
             # Save individual team data
             for ranking in rankings:
-                team_ref = self.db.collection('teams').document(ranking.team_id)
+                team_ref = self.db.collection('teams').document(str(ranking.team_id))
                 team_data = self._serialize_cpr_metrics(ranking)
                 team_data.update({
                     'league_id': league_id,
@@ -225,7 +225,7 @@ class Database:
             
             # Save teams
             for team in league_analysis.teams:
-                team_ref = self.db.collection('teams').document(team.team_id)
+                team_ref = self.db.collection('teams').document(str(team.team_id))
                 team_data = {
                     'team_id': team.team_id,
                     'team_name': team.team_name,
@@ -245,7 +245,7 @@ class Database:
             
             # Save players
             for player_id, player in league_analysis.players.items():
-                player_ref = self.db.collection('players').document(player_id)
+                player_ref = self.db.collection('players').document(str(player_id))
                 player_data = {
                     'player_id': player.player_id,
                     'name': player.name,

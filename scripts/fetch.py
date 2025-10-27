@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from api import SleeperAPI
 from database import Database
-from models import LeagueInfo, Team, Player, PlayerStats, Matchup, Transaction
+from models import LeagueInfo, Team, Player, PlayerStats, Matchup, Transaction, LeagueAnalysis
 
 # Configure logging
 logging.basicConfig(
@@ -42,9 +42,16 @@ class DataFetcher:
             logger.info("👥 Fetching teams and rosters...")
             teams = self.api.get_rosters()
             
-            # Get players
+            # Get players for all rostered IDs (deduped)
             logger.info("🏃 Fetching player data...")
-            players = self.api.get_players()
+            all_player_ids = []
+            for team in teams:
+                try:
+                    all_player_ids.extend(team.roster)
+                except Exception:
+                    continue
+            all_player_ids = list(set(all_player_ids))
+            players = self.api.get_players(all_player_ids)
             
             # Get player stats
             logger.info("📊 Fetching player stats...")
@@ -78,34 +85,30 @@ class DataFetcher:
             raise
     
     async def save_to_database(self, data: dict):
-        """Save fetched data to database"""
+        """Save fetched data to database (league, teams, players)"""
         logger.info("💾 Saving data to database...")
         
         try:
-            # Save league info
-            if "league_info" in data:
-                self.database.save_league_info(data["league_info"])
-            
-            # Save teams
-            if "teams" in data:
-                self.database.save_teams(data["teams"])
-            
-            # Save players
-            if "players" in data:
-                self.database.save_players(data["players"])
-            
-            # Save player stats
-            if "player_stats" in data:
-                self.database.save_player_stats(data["player_stats"])
-            
-            # Save matchups
-            if "matchups" in data:
-                self.database.save_matchups(data["matchups"])
-            
-            # Save transactions
-            if "transactions" in data:
-                self.database.save_transactions(data["transactions"])
-            
+            league_info = data.get("league_info")
+            teams = data.get("teams", [])
+            players_dict = data.get("players", {})
+            matchups = data.get("matchups", [])
+            transactions = data.get("transactions", [])
+
+            # Database.save_league_data expects LeagueAnalysis
+            analysis = LeagueAnalysis(
+                league_info=league_info,
+                cpr_rankings=[],
+                niv_rankings=[],
+                teams=teams,
+                players=players_dict,
+                matchups=matchups,
+                transactions=transactions,
+            )
+            ok = self.database.save_league_data(self.league_id, analysis)
+            if not ok:
+                raise RuntimeError("save_league_data returned False")
+
             logger.info("✅ Data saved to database successfully!")
             
         except Exception as e:

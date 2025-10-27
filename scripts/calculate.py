@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Calculation script for CPR-NFL system"""
+"""
+REAL CPR CALCULATION SCRIPT
+Uses actual Ingram, Alvarado, and Zion algorithms
+"""
+
 import sys
 import os
 from pathlib import Path
@@ -14,8 +18,8 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 from api import SleeperAPI
 from database import Database
 from cpr import CPREngine
-from niv import NIVCalculator
-from models import LeagueInfo, Team, Player, PlayerStats, CPRMetrics, NIVMetrics
+from models import LeagueInfo, Team, Player, PlayerStats, CPRMetrics
+from team_extraction import LegionTeamExtractor
 
 # Configure logging
 logging.basicConfig(
@@ -24,198 +28,180 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class CalculationEngine:
-    """Calculation coordinator for CPR and NIV"""
+class RealCalculationEngine:
+    """REAL calculation coordinator for CPR using revolutionary algorithms"""
     
     def __init__(self, league_id: str = "1267325171853701120"):
         self.league_id = league_id
         self.api = SleeperAPI(league_id)
         self.database = Database()
-        self.cpr_engine = CPREngine()
-        self.niv_calculator = NIVCalculator()
+        
+        # Initialize REAL CPR engine
+        self.cpr_engine = CPREngine({
+            'cpr_weights': {
+                'sli': 0.30,      # Strength of Lineup Index
+                'bsi': 0.20,      # Bench Strength Index  
+                'smi': 0.15,      # Schedule Momentum Index
+                'ingram': 0.15,   # Ingram Index (HHI positional balance)
+                'alvarado': 0.10, # Alvarado Index (Shapley/ADP value efficiency)
+                'zion': 0.10      # Zion Tensor (4D SoS)
+            },
+            'bench_multiplier': 0.3,
+            'current_season': 2025
+        }, league_id)
+        
+        # Initialize Legion team extractor
+        self.team_extractor = LegionTeamExtractor(league_id)
+        
+        logger.info("🧠 REAL Calculation Engine initialized with revolutionary algorithms")
         
     async def calculate_cpr_rankings(self, week: int = None) -> list[CPRMetrics]:
-        """Calculate CPR rankings for all teams"""
-        logger.info("🏆 Calculating CPR rankings...")
+        """Calculate REAL CPR rankings for all teams"""
+        logger.info("🏆 Calculating REAL CPR rankings...")
+        logger.info("🔬 Using: Ingram (HHI), Alvarado (Shapley/ADP), Zion (4D Tensor)")
         
         try:
             # Get league data
             league_info = self.api.get_league_info()
             teams = self.api.get_rosters()
-            players = self.api.get_players()
-            player_stats = self.api.get_player_stats(league_info.season)
             
-            # Calculate CPR for each team
-            cpr_rankings = []
-            
+            # Enhance teams with Legion names
+            legion_teams = self.team_extractor.get_teams()
             for team in teams:
-                logger.info(f"📊 Calculating CPR for {team.team_name}...")
-                
-                # Get team roster players
-                roster_players = []
-                for player_id in team.roster:
-                    if player_id in players:
-                        player = players[player_id]
-                        # Add player stats
-                        player_stats_data = player_stats.get(player_id, {})
-                        player.stats = player_stats_data
-                        roster_players.append(player)
-                
-                # Calculate CPR metrics
-                cpr_metrics = self.cpr_engine.calculate_team_cpr(
-                    team, roster_players, league_info
+                legion_team = next((lt for lt in legion_teams if lt['roster_id'] == int(team.team_id)), None)
+                if legion_team:
+                    team.team_name = legion_team['team_name']
+            
+            # Collect all rostered player IDs
+            all_player_ids = []
+            for t in teams:
+                all_player_ids.extend(getattr(t, 'roster', []) or [])
+            all_player_ids = list(set(all_player_ids))
+            
+            players = self.api.get_players(all_player_ids)
+            player_stats = self.api.get_player_stats(league_info.season)
+
+            # Attach season stats to players
+            for pid, p in players.items():
+                stats_obj = player_stats.get(pid)
+                if stats_obj:
+                    p.stats[league_info.season] = stats_obj
+            
+            # Calculate REAL CPR for each team
+            logger.info("🧠 Running REAL CPR calculations...")
+            cpr_results = self.cpr_engine.calculate_league_cpr(teams, players)
+            
+            # Convert to CPRMetrics objects
+            cpr_rankings = []
+            for team_data in cpr_results['rankings']:
+                metrics = CPRMetrics(
+                    team_id=team_data['team_id'],
+                    team_name=team_data['team_name'],
+                    cpr=team_data['cpr'],
+                    sli=team_data['sli'],
+                    bsi=team_data['bsi'],
+                    smi=team_data['smi'],
+                    ingram=team_data['ingram'],
+                    alvarado=team_data['alvarado'],
+                    zion=team_data['zion'],
+                    rank=team_data['rank'],
+                    wins=team_data['wins'],
+                    losses=team_data['losses']
                 )
-                cpr_rankings.append(cpr_metrics)
+                cpr_rankings.append(metrics)
             
-            # Sort by CPR score
-            cpr_rankings.sort(key=lambda x: x.cpr, reverse=True)
+            logger.info(f"✅ REAL CPR rankings calculated for {len(cpr_rankings)} teams")
+            logger.info(f"   League health: {cpr_results['league_health']:.1%}")
             
-            # Assign ranks
-            for i, metrics in enumerate(cpr_rankings, 1):
-                metrics.rank = i
-            
-            logger.info(f"✅ CPR rankings calculated for {len(cpr_rankings)} teams")
             return cpr_rankings
             
         except Exception as e:
-            logger.error(f"❌ Error calculating CPR rankings: {e}")
-            raise
-    
-    async def calculate_niv_rankings(self, week: int = None) -> list[NIVMetrics]:
-        """Calculate NIV rankings for all players"""
-        logger.info("🎯 Calculating NIV rankings...")
-        
-        try:
-            # Get league data
-            league_info = self.api.get_league_info()
-            teams = self.api.get_rosters()
-            players = self.api.get_players()
-            player_stats = self.api.get_player_stats(league_info.season)
-            
-            # Calculate NIV for each player
-            niv_rankings = []
-            
-            for player_id, player in players.items():
-                # Only calculate for relevant players (on rosters)
-                is_relevant = any(player_id in team.roster for team in teams)
-                if not is_relevant:
-                    continue
-                
-                try:
-                    logger.info(f"📊 Calculating NIV for {player.name}...")
-                    
-                    # Get player stats
-                    stats = player_stats.get(player_id)
-                    if not stats:
-                        continue
-                    
-                    # Calculate NIV metrics
-                    niv_metrics = self.niv_calculator.calculate_player_niv(
-                        player, {"current": stats}, {}
-                    )
-                    niv_rankings.append(niv_metrics)
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not calculate NIV for {player.name}: {e}")
-                    continue
-            
-            # Sort by NIV score
-            niv_rankings.sort(key=lambda x: x.niv, reverse=True)
-            
-            # Assign ranks
-            for i, metrics in enumerate(niv_rankings, 1):
-                metrics.rank = i
-            
-            logger.info(f"✅ NIV rankings calculated for {len(niv_rankings)} players")
-            return niv_rankings
-            
-        except Exception as e:
-            logger.error(f"❌ Error calculating NIV rankings: {e}")
+            logger.error(f"❌ Error calculating REAL CPR rankings: {e}")
             raise
     
     async def calculate_all_metrics(self, week: int = None) -> dict:
-        """Calculate both CPR and NIV metrics"""
-        logger.info("🚀 Starting full calculation...")
+        """Calculate REAL CPR metrics"""
+        logger.info("🚀 Starting REAL CPR calculation...")
         
-        # Calculate CPR rankings
+        # Calculate REAL CPR rankings
         cpr_rankings = await self.calculate_cpr_rankings(week)
-        
-        # Calculate NIV rankings
-        niv_rankings = await self.calculate_niv_rankings(week)
         
         results = {
             "cpr_rankings": cpr_rankings,
-            "niv_rankings": niv_rankings,
             "calculated_at": datetime.now().isoformat(),
-            "week": week or "current"
+            "week": week or "current",
+            "algorithm_version": "REAL_CPR_v1.0",
+            "algorithms_used": {
+                "ingram": "HHI-based positional balance",
+                "alvarado": "Shapley Value / ADP efficiency",
+                "zion": "4D Strength of Schedule tensor"
+            }
         }
         
-        logger.info("✅ All calculations completed!")
+        logger.info("✅ REAL CPR calculations completed!")
         return results
     
     async def save_to_database(self, results: dict):
-        """Save calculation results to database"""
-        logger.info("💾 Saving calculations to database...")
+        """Save REAL calculation results to database"""
+        logger.info("💾 Saving REAL CPR calculations to database...")
         
         try:
-            # Save CPR rankings
+            # Save CPR rankings (latest)
             if "cpr_rankings" in results:
+                # Convert CPRMetrics to dict format for database
+                rankings_data = []
+                for metrics in results["cpr_rankings"]:
+                    rankings_data.append({
+                        'team_id': metrics.team_id,
+                        'team_name': metrics.team_name,
+                        'cpr': metrics.cpr,
+                        'rank': metrics.rank,
+                        'wins': metrics.wins,
+                        'losses': metrics.losses,
+                        'sli': metrics.sli,
+                        'bsi': metrics.bsi,
+                        'smi': metrics.smi,
+                        'ingram': metrics.ingram,
+                        'alvarado': metrics.alvarado,
+                        'zion': metrics.zion,
+                        'cpr_tier': metrics.cpr_tier
+                    })
+                
                 self.database.save_cpr_rankings(
-                    self.league_id, 
-                    results["week"], 
-                    results["cpr_rankings"]
-                )
-            
-            # Save NIV rankings
-            if "niv_rankings" in results:
-                self.database.save_niv_data(
                     self.league_id,
-                    results["week"],
-                    results["niv_rankings"]
+                    rankings_data
                 )
             
-            logger.info("✅ Calculations saved to database!")
+            logger.info("✅ REAL CPR calculations saved to database!")
             
         except Exception as e:
-            logger.error(f"❌ Error saving calculations: {e}")
+            logger.error(f"❌ Error saving REAL calculations: {e}")
             raise
 
 async def main():
     """Main execution function"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Calculate CPR-NFL metrics")
+    parser = argparse.ArgumentParser(description="Calculate REAL CPR-NFL metrics")
     parser.add_argument("--league-id", default="1267325171853701120", 
                        help="League ID to calculate for")
     parser.add_argument("--week", type=int, help="Specific week to calculate")
-    parser.add_argument("--cpr-only", action="store_true", 
-                       help="Only calculate CPR rankings")
-    parser.add_argument("--niv-only", action="store_true", 
-                       help="Only calculate NIV rankings")
     parser.add_argument("--save", action="store_true", 
                        help="Save results to database")
     parser.add_argument("--output", help="Output file for JSON results")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                       help="Verbose logging")
     
     args = parser.parse_args()
     
-    # Initialize calculator
-    calculator = CalculationEngine(args.league_id)
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
     
-    # Calculate based on options
-    if args.cpr_only:
-        results = {
-            "cpr_rankings": await calculator.calculate_cpr_rankings(args.week),
-            "calculated_at": datetime.now().isoformat(),
-            "week": args.week or "current"
-        }
-    elif args.niv_only:
-        results = {
-            "niv_rankings": await calculator.calculate_niv_rankings(args.week),
-            "calculated_at": datetime.now().isoformat(),
-            "week": args.week or "current"
-        }
-    else:
-        results = await calculator.calculate_all_metrics(args.week)
+    # Initialize REAL calculator
+    calculator = RealCalculationEngine(args.league_id)
+    
+    # Calculate REAL CPR metrics
+    results = await calculator.calculate_all_metrics(args.week)
     
     # Save to database if requested
     if args.save:
@@ -223,27 +209,54 @@ async def main():
     
     # Save to file if requested
     if args.output:
+        # Convert CPRMetrics objects to dict for JSON serialization
+        json_results = {
+            "cpr_rankings": [
+                {
+                    'team_id': m.team_id,
+                    'team_name': m.team_name,
+                    'cpr': m.cpr,
+                    'rank': m.rank,
+                    'wins': m.wins,
+                    'losses': m.losses,
+                    'sli': m.sli,
+                    'bsi': m.bsi,
+                    'smi': m.smi,
+                    'ingram': m.ingram,
+                    'alvarado': m.alvarado,
+                    'zion': m.zion,
+                    'cpr_tier': m.cpr_tier
+                }
+                for m in results['cpr_rankings']
+            ],
+            "calculated_at": results['calculated_at'],
+            "week": results['week'],
+            "algorithm_version": results['algorithm_version'],
+            "algorithms_used": results['algorithms_used']
+        }
+        
         with open(args.output, 'w') as f:
-            json.dump(results, f, indent=2, default=str)
+            json.dump(json_results, f, indent=2, default=str)
         logger.info(f"💾 Results saved to {args.output}")
     
     # Print summary
-    print("\n📊 CALCULATION SUMMARY")
-    print("=" * 40)
+    print("\n" + "="*50)
+    print("📊 REAL CPR CALCULATION SUMMARY")
+    print("="*50)
     print(f"Week: {results['week']}")
     print(f"Calculated At: {results['calculated_at']}")
+    print(f"Algorithm: {results['algorithm_version']}")
+    print(f"Teams: {len(results['cpr_rankings'])}")
     
-    if "cpr_rankings" in results:
-        print(f"CPR Rankings: {len(results['cpr_rankings'])} teams")
-        print("\n🏆 TOP 5 CPR RANKINGS")
-        for i, team in enumerate(results['cpr_rankings'][:5], 1):
-            print(f"{i}. {team.team_name}: {team.cpr:.3f}")
+    print("\n🏆 TOP 5 REAL CPR RANKINGS")
+    print("-" * 50)
+    for i, team in enumerate(results['cpr_rankings'][:5], 1):
+        print(f"{i}. {team.team_name}: {team.cpr:.3f} ({team.wins}-{team.losses})")
+        print(f"   Ingram: {team.ingram:.3f} | Alvarado: {team.alvarado:.3f} | Zion: {team.zion:.3f}")
     
-    if "niv_rankings" in results:
-        print(f"NIV Rankings: {len(results['niv_rankings'])} players")
-        print("\n🎯 TOP 5 NIV RANKINGS")
-        for i, player in enumerate(results['niv_rankings'][:5], 1):
-            print(f"{i}. {player.name} ({player.position.value}): {player.niv:.3f}")
+    print("\n🧠 REVOLUTIONARY ALGORITHMS USED:")
+    for algo, desc in results['algorithms_used'].items():
+        print(f"• {algo.title()}: {desc}")
 
 if __name__ == "__main__":
     asyncio.run(main())

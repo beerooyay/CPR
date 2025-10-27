@@ -1,9 +1,25 @@
 """Shared utilities for CPR-NFL system"""
-import statistics
-import math
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+import requests
+import json
 import logging
+import statistics
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timedelta
+import os
+
+def make_sleeper_request(endpoint: str, base_url: str = "https://api.sleeper.app/v1") -> Optional[Dict]:
+    """Make request to Sleeper API with error handling"""
+    url = f"{base_url}/{endpoint}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Sleeper API request failed: {endpoint} - {str(e)}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error in Sleeper API request: {endpoint} - {str(e)}")
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +43,12 @@ def calculate_gini_coefficient(values: List[float]) -> float:
     
     gini = (2 * cumulative_sum) / (n * sum_values) - (n + 1) / n
     return max(0.0, min(gini, 1.0))
+
+def calculate_z_score(value: float, mean: float, std_dev: float) -> float:
+    """Calculate z-score for a value"""
+    if std_dev == 0:
+        return 0.0
+    return (value - mean) / std_dev
 
 def calculate_percentile(values: List[float], target_value: float) -> float:
     """Calculate percentile rank of target value in list"""

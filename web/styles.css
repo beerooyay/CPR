@@ -393,9 +393,17 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 0 20px 20px;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+}
+
+/* Additions: chat styling overrides */
+.message.assistant .message-text {
+    color: #6ebaff !important;
+}
+
+.message.user .message-avatar {
+    display: none;
 }
 
 /* NIV container needs top padding when stats are hidden */

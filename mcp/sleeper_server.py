@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Sleeper MCP Server - Provides Sleeper API tools via MCP"""
+"""
+STREAMLINED Sleeper MCP Server for CPR-NFL
+Uses VERIFIED Sleeper API endpoints for maximum efficiency
+"""
+
 import asyncio
 import json
 import sys
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
@@ -19,194 +24,290 @@ from mcp.types import (
 )
 
 from api import SleeperAPI
-from models import LeagueInfo, Team, Player, PlayerStats, Matchup
+from team_extraction import LegionTeamExtractor
+from utils import make_sleeper_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Sleeper API
-sleeper_api = SleeperAPI("1267325171853701120")
+# Initialize APIs with Legion league
+LEGION_LEAGUE_ID = "1267325171853701120"
+sleeper_api = SleeperAPI(LEGION_LEAGUE_ID)
+team_extractor = LegionTeamExtractor(LEGION_LEAGUE_ID)
 
 # Create MCP server
 server = Server("sleeper-server")
 
 @server.list_tools()
 async def handle_list_tools() -> List[Tool]:
-    """List available Sleeper API tools"""
+    """List STREAMLINED Sleeper API tools using VERIFIED endpoints"""
     return [
         Tool(
-            name="get_league_info",
-            description="Get basic league information including name, season, current week, and number of teams",
+            name="get_legion_teams",
+            description="Get Legion Fantasy Football teams with REAL custom names, records, and logos",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "league_id": {
-                        "type": "string",
-                        "description": "Sleeper league ID (defaults to your league)",
-                        "default": "1267325171853701120"
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_league_teams",
-            description="Get all teams in the league with rosters, records, and owner information",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "league_id": {
-                        "type": "string",
-                        "description": "Sleeper league ID",
-                        "default": "1267325171853701120"
+                    "include_records": {
+                        "type": "boolean", 
+                        "description": "Include win/loss records and points",
+                        "default": True
                     },
-                    "include_rosters": {
+                    "include_logos": {
                         "type": "boolean",
-                        "description": "Include full roster information",
+                        "description": "Include team logo URLs", 
                         "default": True
                     }
                 }
             }
         ),
         Tool(
-            name="get_weekly_matchups",
-            description="Get matchups for a specific week",
+            name="get_league_info",
+            description="Get Legion Fantasy Football league information (season, week, status)",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_weekly_matchups", 
+            description="Get weekly matchups with team names and scores",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "league_id": {
-                        "type": "string",
-                        "description": "Sleeper league ID",
-                        "default": "1267325171853701120"
-                    },
                     "week": {
                         "type": "integer",
-                        "description": "Week number (defaults to current week)",
+                        "description": "Week number (1-18, defaults to current week)",
                         "default": None
                     }
                 }
             }
         ),
         Tool(
-            name="get_player_stats",
-            description="Get player statistics for specific week(s)",
+            name="get_draft_data",
+            description="Get draft picks for Alvarado Index ADP calculations",
             inputSchema={
-                "type": "object",
+                "type": "object", 
                 "properties": {
-                    "player_id": {
-                        "type": "string",
-                        "description": "Sleeper player ID"
-                    },
-                    "weeks": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "description": "List of weeks to get stats for",
-                        "default": []
-                    },
-                    "season": {
-                        "type": "integer",
-                        "description": "Season year",
-                        "default": 2025
-                    }
-                },
-                "required": ["player_id"]
-            }
-        ),
-        Tool(
-            name="search_players",
-            description="Search for players by name or position",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "search_term": {
-                        "type": "string",
-                        "description": "Player name or partial name to search for"
-                    },
-                    "position": {
-                        "type": "string",
-                        "description": "Filter by position (QB, RB, WR, TE, K, DEF)",
-                        "enum": ["QB", "RB", "WR", "TE", "K", "DEF"]
-                    },
-                    "team": {
-                        "type": "string",
-                        "description": "Filter by NFL team abbreviation"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return",
-                        "default": 25
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_league_standings",
-            description="Get current league standings with points for/against and playoff implications",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "league_id": {
-                        "type": "string",
-                        "description": "Sleeper league ID",
-                        "default": "1267325171853701120"
+                    "include_adp": {
+                        "type": "boolean",
+                        "description": "Include ADP cost calculations",
+                        "default": True
                     }
                 }
             }
         ),
         Tool(
             name="get_transactions",
-            description="Get recent league transactions (waivers, trades, free agent pickups)",
+            description="Get recent league transactions (waivers, trades, free agents)",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "league_id": {
-                        "type": "string",
-                        "description": "Sleeper league ID",
-                        "default": "1267325171853701120"
-                    },
                     "week": {
                         "type": "integer",
-                        "description": "Get transactions for specific week (default: recent)",
+                        "description": "Specific week (defaults to recent)",
                         "default": None
                     },
-                    "transaction_type": {
-                        "type": "string",
-                        "description": "Filter by transaction type",
-                        "enum": ["waiver", "free_agent", "trade"],
-                        "default": None
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max transactions to return",
+                        "default": 20
                     }
                 }
             }
         ),
         Tool(
-            name="get_player_news",
-            description="Get recent news and injury updates for players",
+            name="get_player_info",
+            description="Get NFL player information and injury status",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "player_id": {
-                        "type": "string",
-                        "description": "Sleeper player ID"
+                    "player_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of Sleeper player IDs"
                     },
-                    "days_back": {
-                        "type": "integer",
-                        "description": "Number of days to look back for news",
-                        "default": 7
+                    "include_stats": {
+                        "type": "boolean",
+                        "description": "Include season statistics",
+                        "default": False
                     }
                 },
-                "required": ["player_id"]
+                "required": ["player_ids"]
+            }
+        ),
+        Tool(
+            name="get_nfl_state",
+            description="Get current NFL season state (week, season status)",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="search_legion_team",
+            description="Find Legion team by name or owner",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "search_term": {
+                        "type": "string",
+                        "description": "Team name or owner name to search for"
+                    }
+                },
+                "required": ["search_term"]
+            }
+        ),
+        Tool(
+            name="compare_players",
+            description="Compare 2-4 players for trade analysis with projections and trends",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "player_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "2-4 Sleeper player IDs to compare",
+                        "minItems": 2,
+                        "maxItems": 4
+                    },
+                    "include_projections": {
+                        "type": "boolean",
+                        "description": "Include 2025 projections",
+                        "default": True
+                    },
+                    "include_trends": {
+                        "type": "boolean", 
+                        "description": "Include trending data (adds/drops)",
+                        "default": True
+                    }
+                },
+                "required": ["player_ids"]
+            }
+        ),
+        Tool(
+            name="get_trending_players",
+            description="Get trending adds/drops for waiver wire analysis",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "trend_type": {
+                        "type": "string",
+                        "enum": ["add", "drop", "both"],
+                        "description": "Type of trending data",
+                        "default": "both"
+                    },
+                    "position": {
+                        "type": "string",
+                        "enum": ["QB", "RB", "WR", "TE", "K", "DEF"],
+                        "description": "Filter by position",
+                        "default": null
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max players to return",
+                        "default": 20
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="analyze_trade",
+            description="Analyze a potential trade between Legion teams",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "team1_gives": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Player IDs team 1 is giving up"
+                    },
+                    "team1_gets": {
+                        "type": "array", 
+                        "items": {"type": "string"},
+                        "description": "Player IDs team 1 is getting"
+                    },
+                    "team1_name": {
+                        "type": "string",
+                        "description": "Team 1 name (optional)"
+                    },
+                    "team2_name": {
+                        "type": "string", 
+                        "description": "Team 2 name (optional)"
+                    }
+                },
+                "required": ["team1_gives", "team1_gets"]
+            }
+        ),
+        Tool(
+            name="get_projections",
+            description="Get 2025 NFL projections for players",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "position": {
+                        "type": "string",
+                        "enum": ["QB", "RB", "WR", "TE", "K", "DEF"],
+                        "description": "Filter by position",
+                        "default": null
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max players to return",
+                        "default": 50
+                    }
+                }
             }
         )
     ]
 
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
-    """Handle tool calls for Sleeper API"""
+    """Handle STREAMLINED tool calls using VERIFIED endpoints"""
     
     try:
-        if name == "get_league_info":
-            league_id = arguments.get("league_id", "1267325171853701120")
-            league_info = sleeper_api.get_league_info(league_id)
+        if name == "get_legion_teams":
+            include_records = arguments.get("include_records", True)
+            include_logos = arguments.get("include_logos", True)
+            
+            # Use our VERIFIED team extraction
+            legion_teams = team_extractor.get_teams()
+            
+            result_data = []
+            for team in legion_teams:
+                team_data = {
+                    "roster_id": team["roster_id"],
+                    "team_name": team["team_name"],
+                    "owner_name": team["owner_name"],
+                    "user_id": team["user_id"],
+                    "has_custom_name": team["has_custom_name"]
+                }
+                
+                if include_records:
+                    team_data["record"] = team["record"]
+                
+                if include_logos:
+                    team_data["logo_full"] = team["logo_full"]
+                    team_data["logo_thumb"] = team["logo_thumb"]
+                
+                result_data.append(team_data)
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "teams": result_data,
+                        "total_teams": len(result_data),
+                        "league_id": LEGION_LEAGUE_ID,
+                        "source": "VERIFIED team_extraction + users metadata"
+                    }, indent=2)
+                )]
+            )
+        
+        elif name == "get_league_info":
+            # VERIFIED endpoint: league/{league_id}
+            league_info = sleeper_api.get_league_info()
             
             return CallToolResult(
                 content=[TextContent(
@@ -218,247 +319,420 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResu
                         "current_week": league_info.current_week,
                         "num_teams": league_info.num_teams,
                         "status": league_info.status,
-                        "playoff_teams": league_info.playoff_teams,
-                        "playoff_start_week": league_info.playoff_start_week
+                        "roster_positions": league_info.roster_positions,
+                        "source": "VERIFIED league/{league_id}"
                     }, indent=2)
                 )]
             )
         
-        elif name == "get_league_teams":
-            league_id = arguments.get("league_id", "1267325171853701120")
-            include_rosters = arguments.get("include_rosters", True)
-            
-            teams = sleeper_api.get_rosters(league_id)
-            
-            result_data = []
-            for team in teams:
-                team_data = {
-                    "team_id": team.team_id,
-                    "team_name": team.team_name,
-                    "owner_name": team.owner_name,
-                    "owner_id": team.owner_id,
-                    "wins": team.wins,
-                    "losses": team.losses,
-                    "ties": team.ties,
-                    "points_for": team.points_for,
-                    "points_against": team.points_against,
-                    "waiver_priority": team.waiver_priority,
-                    "total_moves": team.total_moves
-                }
-                
-                if include_rosters and team.roster:
-                    team_data["roster"] = [
-                        {
-                            "player_id": player.player_id,
-                            "name": player.name,
-                            "position": player.position.value,
-                            "team": player.team,
-                            "status": player.status,
-                            "injury_status": player.injury_status.value if player.injury_status else "HEALTHY"
-                        }
-                        for player in team.roster
-                    ]
-                
-                result_data.append(team_data)
-            
-            return CallToolResult(
-                content=[TextContent(
-                    type="text",
-                    text=json.dumps(result_data, indent=2)
-                )]
-            )
-        
         elif name == "get_weekly_matchups":
-            league_id = arguments.get("league_id", "1267325171853701120")
             week = arguments.get("week")
             
-            matchups = sleeper_api.get_matchups(league_id, week)
+            # VERIFIED endpoint: league/{league_id}/matchups/{week}
+            matchups = sleeper_api.get_matchups(week or sleeper_api.get_league_info().current_week)
+            
+            # Enhance with Legion team names
+            legion_teams = team_extractor.get_teams()
+            team_lookup = {str(t["roster_id"]): t["team_name"] for t in legion_teams}
             
             result_data = []
             for matchup in matchups:
                 matchup_data = {
                     "matchup_id": matchup.matchup_id,
                     "week": matchup.week,
-                    "home_team": {
-                        "team_id": matchup.home_team.team_id,
-                        "team_name": matchup.home_team.team_name,
-                        "points": matchup.home_points
-                    },
-                    "away_team": {
-                        "team_id": matchup.away_team.team_id,
-                        "team_name": matchup.away_team.team_name,
-                        "points": matchup.away_points
-                    },
-                    "winner": matchup.winner,
-                    "is_playoff": matchup.is_playoff
+                    "team1_id": matchup.team1_id,
+                    "team1_name": team_lookup.get(matchup.team1_id, f"Team {matchup.team1_id}"),
+                    "team1_score": matchup.team1_score,
+                    "team2_id": matchup.team2_id,
+                    "team2_name": team_lookup.get(matchup.team2_id, f"Team {matchup.team2_id}"),
+                    "team2_score": matchup.team2_score,
+                    "status": matchup.status
                 }
                 result_data.append(matchup_data)
             
             return CallToolResult(
                 content=[TextContent(
                     type="text",
-                    text=json.dumps(result_data, indent=2)
+                    text=json.dumps({
+                        "matchups": result_data,
+                        "week": week or sleeper_api.get_league_info().current_week,
+                        "total_matchups": len(result_data),
+                        "source": "VERIFIED league/{league_id}/matchups/{week}"
+                    }, indent=2)
                 )]
             )
         
-        elif name == "get_player_stats":
-            player_id = arguments["player_id"]
-            weeks = arguments.get("weeks", [])
-            season = arguments.get("season", 2025)
+        elif name == "get_draft_data":
+            include_adp = arguments.get("include_adp", True)
             
-            if not weeks:
-                # Default to recent 4 weeks
-                league_info = sleeper_api.get_league_info()
-                current_week = league_info.current_week
-                weeks = list(range(max(1, current_week - 3), current_week + 1))
+            # VERIFIED endpoints: league/{league_id}/drafts + draft/{draft_id}/picks
+            drafts_data = make_sleeper_request(f"league/{LEGION_LEAGUE_ID}/drafts")
             
-            stats = {}
-            for week in weeks:
-                week_stats = sleeper_api.get_player_stats(player_id, week, season)
-                if week_stats:
-                    stats[f"week_{week}"] = {
-                        "pass_yards": week_stats.pass_yards,
-                        "pass_tds": week_stats.pass_tds,
-                        "pass_ints": week_stats.pass_ints,
-                        "rush_yards": week_stats.rush_yards,
-                        "rush_tds": week_stats.rush_tds,
-                        "receptions": week_stats.receptions,
-                        "rec_yards": week_stats.rec_yards,
-                        "rec_tds": week_stats.rec_tds,
-                        "fumbles": week_stats.fumbles
-                    }
+            if not drafts_data:
+                return CallToolResult(
+                    content=[TextContent(type="text", text=json.dumps({"error": "No draft data found"}))]
+                )
+            
+            draft_id = drafts_data[0]["draft_id"]
+            picks_data = make_sleeper_request(f"draft/{draft_id}/picks")
+            
+            if include_adp:
+                # Calculate ADP costs for Alvarado Index
+                for pick in picks_data:
+                    pick_no = pick["pick_no"]
+                    max_picks = 144  # 12 teams * 12 rounds
+                    adp_cost = 1.0 - (pick_no - 1) / max_picks  # Higher pick = higher cost
+                    pick["adp_cost"] = round(adp_cost, 3)
             
             return CallToolResult(
                 content=[TextContent(
                     type="text",
-                    text=json.dumps(stats, indent=2)
-                )]
-            )
-        
-        elif name == "search_players":
-            search_term = arguments.get("search_term", "")
-            position = arguments.get("position")
-            team = arguments.get("team")
-            limit = arguments.get("limit", 25)
-            
-            # Use Sleeper API to search players
-            all_players = sleeper_api.get_all_players()
-            
-            results = []
-            for player_id, player_data in all_players.items():
-                # Apply filters
-                if search_term and search_term.lower() not in player_data.get("full_name", "").lower():
-                    continue
-                
-                if position and player_data.get("position") != position:
-                    continue
-                
-                if team and player_data.get("team") != team:
-                    continue
-                
-                results.append({
-                    "player_id": player_id,
-                    "name": player_data.get("full_name"),
-                    "position": player_data.get("position"),
-                    "team": player_data.get("team"),
-                    "status": player_data.get("status"),
-                    "injury_status": player_data.get("injury_status")
-                })
-                
-                if len(results) >= limit:
-                    break
-            
-            return CallToolResult(
-                content=[TextContent(
-                    type="text",
-                    text=json.dumps(results, indent=2)
-                )]
-            )
-        
-        elif name == "get_league_standings":
-            league_id = arguments.get("league_id", "1267325171853701120")
-            
-            teams = sleeper_api.get_rosters(league_id)
-            
-            # Sort by wins, then points for
-            sorted_teams = sorted(teams, key=lambda t: (t.wins, t.points_for), reverse=True)
-            
-            standings = []
-            for rank, team in enumerate(sorted_teams, 1):
-                standings.append({
-                    "rank": rank,
-                    "team_id": team.team_id,
-                    "team_name": team.team_name,
-                    "owner_name": team.owner_name,
-                    "record": f"{team.wins}-{team.losses}-{team.ties}",
-                    "points_for": team.points_for,
-                    "points_against": team.points_against,
-                    "point_difference": team.points_for - team.points_against,
-                    "waiver_priority": team.waiver_priority,
-                    "playoff_seed": team.playoff_seed if hasattr(team, 'playoff_seed') else None
-                })
-            
-            return CallToolResult(
-                content=[TextContent(
-                    type="text",
-                    text=json.dumps(standings, indent=2)
+                    text=json.dumps({
+                        "draft_id": draft_id,
+                        "picks": picks_data,
+                        "total_picks": len(picks_data),
+                        "source": "VERIFIED draft/{draft_id}/picks"
+                    }, indent=2)
                 )]
             )
         
         elif name == "get_transactions":
-            league_id = arguments.get("league_id", "1267325171853701120")
             week = arguments.get("week")
-            transaction_type = arguments.get("transaction_type")
+            limit = arguments.get("limit", 20)
             
-            transactions = sleeper_api.get_transactions(league_id, week)
+            # VERIFIED endpoint: league/{league_id}/transactions/{week}
+            transactions = sleeper_api.get_transactions(week)
             
-            # Filter by transaction type if specified
-            if transaction_type:
-                transactions = [t for t in transactions if t.get("type") == transaction_type]
+            # Limit results
+            limited_transactions = transactions[:limit] if transactions else []
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text", 
+                    text=json.dumps({
+                        "transactions": limited_transactions,
+                        "week": week or "recent",
+                        "total_shown": len(limited_transactions),
+                        "source": "VERIFIED league/{league_id}/transactions/{week}"
+                    }, indent=2)
+                )]
+            )
+        
+        elif name == "get_player_info":
+            player_ids = arguments["player_ids"]
+            include_stats = arguments.get("include_stats", False)
+            
+            # VERIFIED endpoint: players/nfl
+            players = sleeper_api.get_players(player_ids)
             
             result_data = []
-            for transaction in transactions:
-                result_data.append({
-                    "transaction_id": transaction.get("transaction_id"),
-                    "type": transaction.get("type"),
-                    "status": transaction.get("status"),
-                    "timestamp": transaction.get("timestamp"),
-                    "roster_id": transaction.get("roster_id"),
-                    "adds": transaction.get("adds", {}),
-                    "drops": transaction.get("drops", {}),
-                    "waiver_bid": transaction.get("waiver_bid")
-                })
+            for player_id, player in players.items():
+                player_data = {
+                    "player_id": player_id,
+                    "name": player.name,
+                    "position": player.position.value,
+                    "team": player.team,
+                    "status": player.status,
+                    "injury_status": player.injury_status.value,
+                    "fantasy_positions": [pos.value for pos in player.fantasy_positions]
+                }
+                
+                if include_stats:
+                    current_season = 2025
+                    stats = player.get_season_stats(current_season)
+                    if stats:
+                        player_data["stats"] = {
+                            "games_played": stats.games_played,
+                            "fantasy_points": stats.fantasy_points,
+                            "fantasy_points_per_game": stats.fantasy_points_per_game
+                        }
+                
+                result_data.append(player_data)
             
             return CallToolResult(
                 content=[TextContent(
                     type="text",
-                    text=json.dumps(result_data, indent=2)
+                    text=json.dumps({
+                        "players": result_data,
+                        "total_players": len(result_data),
+                        "source": "VERIFIED players/nfl"
+                    }, indent=2)
                 )]
             )
         
-        elif name == "get_player_news":
-            player_id = arguments["player_id"]
-            days_back = arguments.get("days_back", 7)
+        elif name == "get_nfl_state":
+            # VERIFIED endpoint: state/nfl
+            nfl_state = make_sleeper_request("state/nfl")
             
-            # This would integrate with a news API
-            # For now, return basic player info
-            all_players = sleeper_api.get_all_players()
-            player_data = all_players.get(player_id, {})
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "nfl_state": nfl_state,
+                        "source": "VERIFIED state/nfl"
+                    }, indent=2)
+                )]
+            )
+        
+        elif name == "search_legion_team":
+            search_term = arguments["search_term"].lower()
             
-            news_data = {
-                "player_id": player_id,
-                "name": player_data.get("full_name"),
-                "position": player_data.get("position"),
-                "team": player_data.get("team"),
-                "status": player_data.get("status"),
-                "injury_status": player_data.get("injury_status"),
-                "news": "News integration would be implemented here"
+            legion_teams = team_extractor.get_teams()
+            
+            matches = []
+            for team in legion_teams:
+                if (search_term in team["team_name"].lower() or 
+                    search_term in team["owner_name"].lower()):
+                    matches.append(team)
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "matches": matches,
+                        "search_term": search_term,
+                        "total_matches": len(matches),
+                        "source": "Legion team extraction search"
+                    }, indent=2)
+                )]
+            )
+        
+        elif name == "compare_players":
+            player_ids = arguments["player_ids"]
+            include_projections = arguments.get("include_projections", True)
+            include_trends = arguments.get("include_trends", True)
+            
+            # Get player info
+            players = sleeper_api.get_players(player_ids)
+            
+            # Get projections if requested
+            projections_data = {}
+            if include_projections:
+                proj_data = make_sleeper_request("projections/nfl/regular/2025")
+                if proj_data:
+                    projections_data = proj_data
+            
+            # Get trending data if requested
+            trending_adds = []
+            trending_drops = []
+            if include_trends:
+                adds_data = make_sleeper_request("players/nfl/trending/add")
+                drops_data = make_sleeper_request("players/nfl/trending/drop")
+                if adds_data:
+                    trending_adds = [p["player_id"] for p in adds_data[:50]]
+                if drops_data:
+                    trending_drops = [p["player_id"] for p in drops_data[:50]]
+            
+            comparison_data = []
+            for player_id, player in players.items():
+                player_comparison = {
+                    "player_id": player_id,
+                    "name": player.name,
+                    "position": player.position.value,
+                    "team": player.team,
+                    "injury_status": player.injury_status.value,
+                    "fantasy_positions": [pos.value for pos in player.fantasy_positions]
+                }
+                
+                # Add current season stats
+                stats = player.get_season_stats(2025)
+                if stats:
+                    player_comparison["current_stats"] = {
+                        "games_played": stats.games_played,
+                        "fantasy_points": stats.fantasy_points,
+                        "fantasy_ppg": round(stats.fantasy_points_per_game, 2)
+                    }
+                
+                # Add projections
+                if include_projections and player_id in projections_data:
+                    proj = projections_data[player_id]
+                    player_comparison["projections"] = {
+                        "projected_points": proj.get("pts_ppr", 0),
+                        "projected_games": proj.get("gp", 17)
+                    }
+                
+                # Add trending status
+                if include_trends:
+                    player_comparison["trending"] = {
+                        "hot_add": player_id in trending_adds,
+                        "trending_drop": player_id in trending_drops
+                    }
+                
+                comparison_data.append(player_comparison)
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "comparison": comparison_data,
+                        "total_players": len(comparison_data),
+                        "includes_projections": include_projections,
+                        "includes_trends": include_trends,
+                        "source": "VERIFIED players/nfl + projections/nfl/regular/2025"
+                    }, indent=2)
+                )]
+            )
+        
+        elif name == "get_trending_players":
+            trend_type = arguments.get("trend_type", "both")
+            position = arguments.get("position")
+            limit = arguments.get("limit", 20)
+            
+            result_data = {"trending_adds": [], "trending_drops": []}
+            
+            if trend_type in ["add", "both"]:
+                adds_data = make_sleeper_request("players/nfl/trending/add")
+                if adds_data:
+                    filtered_adds = adds_data
+                    if position:
+                        filtered_adds = [p for p in adds_data if p.get("position") == position]
+                    result_data["trending_adds"] = filtered_adds[:limit]
+            
+            if trend_type in ["drop", "both"]:
+                drops_data = make_sleeper_request("players/nfl/trending/drop")
+                if drops_data:
+                    filtered_drops = drops_data
+                    if position:
+                        filtered_drops = [p for p in drops_data if p.get("position") == position]
+                    result_data["trending_drops"] = filtered_drops[:limit]
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        **result_data,
+                        "trend_type": trend_type,
+                        "position_filter": position,
+                        "source": "VERIFIED players/nfl/trending/add + players/nfl/trending/drop"
+                    }, indent=2)
+                )]
+            )
+        
+        elif name == "analyze_trade":
+            team1_gives = arguments["team1_gives"]
+            team1_gets = arguments["team1_gets"]
+            team1_name = arguments.get("team1_name", "Team 1")
+            team2_name = arguments.get("team2_name", "Team 2")
+            
+            # Get all players involved
+            all_player_ids = team1_gives + team1_gets
+            players = sleeper_api.get_players(all_player_ids)
+            
+            # Get projections for trade analysis
+            projections_data = make_sleeper_request("projections/nfl/regular/2025") or {}
+            
+            def analyze_players(player_ids, label):
+                total_projected = 0
+                total_current = 0
+                players_analysis = []
+                
+                for pid in player_ids:
+                    if pid in players:
+                        player = players[pid]
+                        
+                        # Current season performance
+                        stats = player.get_season_stats(2025)
+                        current_points = stats.fantasy_points if stats else 0
+                        
+                        # Projected performance
+                        projected_points = projections_data.get(pid, {}).get("pts_ppr", 0)
+                        
+                        total_current += current_points
+                        total_projected += projected_points
+                        
+                        players_analysis.append({
+                            "name": player.name,
+                            "position": player.position.value,
+                            "team": player.team,
+                            "current_points": current_points,
+                            "projected_points": projected_points,
+                            "injury_status": player.injury_status.value
+                        })
+                
+                return {
+                    "players": players_analysis,
+                    "total_current_points": total_current,
+                    "total_projected_points": total_projected
+                }
+            
+            team1_gives_analysis = analyze_players(team1_gives, "gives")
+            team1_gets_analysis = analyze_players(team1_gets, "gets")
+            
+            # Calculate trade value
+            value_difference = (team1_gets_analysis["total_projected_points"] - 
+                              team1_gives_analysis["total_projected_points"])
+            
+            trade_analysis = {
+                "trade_summary": {
+                    "team1_name": team1_name,
+                    "team2_name": team2_name,
+                    "value_difference": round(value_difference, 2),
+                    "recommendation": "ACCEPT" if value_difference > 5 else "DECLINE" if value_difference < -5 else "NEUTRAL"
+                },
+                "team1_gives": team1_gives_analysis,
+                "team1_gets": team1_gets_analysis,
+                "analysis_notes": [
+                    f"{team1_name} giving up {team1_gives_analysis['total_projected_points']:.1f} projected points",
+                    f"{team1_name} receiving {team1_gets_analysis['total_projected_points']:.1f} projected points",
+                    f"Net value: {'Gain' if value_difference > 0 else 'Loss'} of {abs(value_difference):.1f} points"
+                ]
             }
             
             return CallToolResult(
                 content=[TextContent(
                     type="text",
-                    text=json.dumps(news_data, indent=2)
+                    text=json.dumps(trade_analysis, indent=2)
+                )]
+            )
+        
+        elif name == "get_projections":
+            position = arguments.get("position")
+            limit = arguments.get("limit", 50)
+            
+            # VERIFIED endpoint: projections/nfl/regular/2025
+            projections_data = make_sleeper_request("projections/nfl/regular/2025")
+            
+            if not projections_data:
+                return CallToolResult(
+                    content=[TextContent(type="text", text=json.dumps({"error": "No projections available"}))]
+                )
+            
+            # Get player info to enhance projections
+            player_ids = list(projections_data.keys())[:200]  # Limit to avoid huge requests
+            players = sleeper_api.get_players(player_ids)
+            
+            enhanced_projections = []
+            for player_id, proj_data in projections_data.items():
+                if player_id in players:
+                    player = players[player_id]
+                    
+                    # Filter by position if specified
+                    if position and player.position.value != position:
+                        continue
+                    
+                    enhanced_proj = {
+                        "player_id": player_id,
+                        "name": player.name,
+                        "position": player.position.value,
+                        "team": player.team,
+                        "projected_points": proj_data.get("pts_ppr", 0),
+                        "projected_games": proj_data.get("gp", 17),
+                        "projected_ppg": round(proj_data.get("pts_ppr", 0) / max(proj_data.get("gp", 17), 1), 2)
+                    }
+                    enhanced_projections.append(enhanced_proj)
+            
+            # Sort by projected points
+            enhanced_projections.sort(key=lambda x: x["projected_points"], reverse=True)
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "projections": enhanced_projections[:limit],
+                        "position_filter": position,
+                        "total_players": len(enhanced_projections),
+                        "source": "VERIFIED projections/nfl/regular/2025"
+                    }, indent=2)
                 )]
             )
         
@@ -482,8 +756,10 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResu
         )
 
 async def main():
-    """Main entry point for Sleeper MCP server"""
-    logger.info("🏈 Starting Sleeper MCP Server...")
+    """Main entry point for STREAMLINED Sleeper MCP server"""
+    logger.info("🏈 Starting STREAMLINED Sleeper MCP Server...")
+    logger.info(f"📋 Legion League ID: {LEGION_LEAGUE_ID}")
+    logger.info("✅ Using VERIFIED Sleeper API endpoints")
     
     # Run the server using stdio
     async with stdio_server() as (read_stream, write_stream):
@@ -491,8 +767,8 @@ async def main():
             read_stream,
             write_stream,
             InitializationOptions(
-                server_name="sleever-server",
-                server_version="1.0.0",
+                server_name="sleeper-server",
+                server_version="2.0.0",
                 capabilities=server.get_capabilities(
                     notification_options=None,
                     experimental_capabilities=None,

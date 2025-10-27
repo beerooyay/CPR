@@ -1,7 +1,5 @@
-// API Configuration - Firebase Functions (Original Plan)
-const API_BASE = 'https://us-central1-cpr-app-54c15.cloudfunctions.net';
-
-// AI Configuration
+// API Configuration - Firebase Functions
+const API_BASE = ''; // Use relative URLs for same-origin requests
 const MODEL = 'openai/gpt-oss-20b:free'; // Updated model
 const LEAGUE_ID = '1267325171853701120'; // Your league ID
 
@@ -35,7 +33,7 @@ async function loadDatabaseContext() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        const response = await fetch(`${API_BASE}/databaseContext`, { signal: controller.signal });
+        const response = await fetch(`/api/databaseContext?league_id=${LEAGUE_ID}`, { signal: controller.signal });
         clearTimeout(timeoutId);
         
         if (!response.ok) throw new Error(`Failed to load database context (${response.status})`);
@@ -142,8 +140,8 @@ async function loadCPRScreen() {
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
         const [statsRes, rankingsRes] = await Promise.all([
-            fetch(`${API_BASE}/leagueStats?season=2025`, { signal: controller.signal }),
-            fetch(`${API_BASE}/rankings?season=2025`, { signal: controller.signal })
+            fetch(`/api/league?league_id=${LEAGUE_ID}&season=2025`, { signal: controller.signal }),
+            fetch(`/api/cpr?league_id=${LEAGUE_ID}&season=2025`, { signal: controller.signal })
         ]);
         
         clearTimeout(timeoutId);
@@ -152,16 +150,49 @@ async function loadCPRScreen() {
             throw new Error(`Failed to fetch CPR data: stats(${statsRes.status}), rankings(${rankingsRes.status})`);
         }
 
-        const stats = await statsRes.json();
-        const rankings = await rankingsRes.json();
+        const statsJson = await statsRes.json();
+        const rankingsJson = await rankingsRes.json();
+        const stats = statsJson.data || statsJson;
+        const rankingsPayload = (rankingsJson.data && rankingsJson.data) || rankingsJson;
+        const rankings = rankingsPayload.rankings || rankingsPayload;
 
         // Update cache
         cache.stats = stats;
         cache.rankings = rankings;
 
-        // Update league stats
-        document.getElementById('league-health').textContent = `${(stats.health * 100).toFixed(1)}%`;
-        document.getElementById('gini-coeff').textContent = stats.gini.toFixed(3);
+        // Update league stats from CPR payload when available, else compute from rankings
+        const healthFromApi = rankingsPayload.league_health;
+        const giniFromApi = rankingsPayload.gini_coefficient;
+        let leagueHealth = typeof healthFromApi === 'number' ? healthFromApi : null;
+        let giniCoeff = typeof giniFromApi === 'number' ? giniFromApi : null;
+
+        if (leagueHealth == null || giniCoeff == null) {
+            // compute gini from CPR list as fallback
+            const values = (rankings || []).map(t => t.cpr).filter(v => typeof v === 'number');
+            const n = values.length;
+            if (n > 0) {
+                const sorted = values.slice().sort((a,b)=>a-b);
+                const sum = sorted.reduce((a,b)=>a+b,0);
+                if (sum > 0) {
+                    let cum = 0;
+                    for (let i=0;i<n;i++) cum += (i+1)*sorted[i];
+                    giniCoeff = (n+1 - 2*cum/sum) / n;
+                    giniCoeff = Math.max(0, Math.min(1, giniCoeff));
+                    leagueHealth = Math.max(0, 1 - giniCoeff);
+                } else {
+                    giniCoeff = 0;
+                    leagueHealth = 1;
+                }
+            } else {
+                giniCoeff = 0;
+                leagueHealth = 1;
+            }
+        }
+
+        const healthEl = document.getElementById('league-health');
+        const giniEl = document.getElementById('gini-coeff');
+        if (healthEl) healthEl.textContent = `${(leagueHealth * 100).toFixed(1)}%`;
+        if (giniEl) giniEl.textContent = (giniCoeff).toFixed(3);
 
         // Clear and build rankings
         container.innerHTML = '';
@@ -170,7 +201,8 @@ async function loadCPRScreen() {
         rankings.forEach(team => {
             const row = document.createElement('div');
             row.className = `team-row ${team.rank === 1 ? 'gold' : ''}`;
-            row.dataset.team = team.team;
+            const teamName = (team.team_name || team.team || '').toString();
+            row.dataset.team = teamName;
             
             const alvaradoValue = team.alvarado != null ? team.alvarado.toFixed(2) : '0.00';
 
@@ -178,7 +210,7 @@ async function loadCPRScreen() {
                 <div class="neon-border"></div>
                 <div class="team-row-header">
                     <div class="rank-badge">${team.rank}</div>
-                    <div class="team-name">${team.team.toUpperCase()}</div>
+                    <div class="team-name">${teamName.toUpperCase()}</div>
                     <button class="claim-team-btn" data-team="${team.team}" style="opacity: 0.5;">CLAIM TEAM (Auth Required)</button>
                     <div class="cpr-value">${team.cpr.toFixed(3)}</div>
                 </div>
@@ -250,9 +282,45 @@ async function loadNIVTeams() {
         // Use cached rankings or fetch new ones
         let rankings = cache.rankings;
         if (!rankings) {
-            const response = await fetch(`${API_BASE}/rankings?season=2025`);
-            if (!response.ok) throw new Error('Failed to fetch rankings');
-            rankings = await response.json();
+            const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
+            if (!response.ok) throw new Error('Failed to fetch NIV data');
+            const rj = await response.json();
+            const payload = (rj.data && rj.data) || rj;
+            const playerRankings = payload.player_rankings || [];
+            
+            // Group players by team for team view
+            const teamMap = {};
+            playerRankings.forEach(player => {
+                const teamId = player.team_id || 'FREE';
+                if (!teamMap[teamId]) {
+                    teamMap[teamId] = {
+                        team_id: teamId,
+                        team_name: teamId === 'FREE' ? 'Free Agents' : teamId,
+                        players: [],
+                        avg_niv: 0
+                    };
+                }
+                teamMap[teamId].players.push(player);
+            });
+            
+            // Calculate team averages and convert to array
+            rankings = Object.values(teamMap).map(team => {
+                const avgNiv = team.players.reduce((sum, p) => sum + p.niv, 0) / team.players.length;
+                return {
+                    team_id: team.team_id,
+                    team: team.team_name,
+                    rank: 0, // Will be set below
+                    cpr: avgNiv, // Use NIV as the ranking metric for display
+                    avg_niv: avgNiv,
+                    player_count: team.players.length
+                };
+            }).sort((a, b) => b.avg_niv - a.avg_niv);
+            
+            // Set ranks after sorting
+            rankings.forEach((team, index) => {
+                team.rank = index + 1;
+            });
+            
             cache.rankings = rankings;
         }
 
@@ -266,7 +334,7 @@ async function loadNIVTeams() {
                 <div class="team-row-header">
                     <div class="rank-badge">${team.rank}</div>
                     <div class="team-name">${team.team.toUpperCase()}</div>
-                    <div class="cpr-value">${team.cpr.toFixed(3)}</div>
+                    <div class="cpr-value">${team.avg_niv.toFixed(3)}</div>
                 </div>
             `;
 
@@ -307,10 +375,11 @@ async function loadNIVRoster(team) {
     container.innerHTML = '<div class="loading-state">Loading roster...</div>';
     
     try {
-        const response = await fetch(`${API_BASE}/teamRoster?team=${encodeURIComponent(team.team)}&season=2025`);
+        const response = await fetch(`/api/rosters?team=${encodeURIComponent(team.team_name || team.team || '')}&league_id=${LEAGUE_ID}&season=2025`);
         if (!response.ok) throw new Error('Failed to fetch roster');
-        
-        const roster = await response.json();
+        const rosterJson = await response.json();
+        const rosterPayload = rosterJson.data || rosterJson;
+        const roster = rosterPayload.niv_data || rosterPayload;
         
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
@@ -380,13 +449,13 @@ async function loadChatScreen() {
         container.innerHTML = `
             <div class="message assistant">
                 <div class="message-avatar">
-                    <img src="jaylen.png" alt="Jaylen Hendricks">
+                    <img src="/assets/jaylen.png" alt="Jaylen Hendricks">
                 </div>
                 <div class="message-bubble">
                     <div class="message-text">
-                        <strong>What's up, I'm Jaylen Hendricks.</strong><br><br>
-                        I've got access to your league's CPR data, player analytics, and insider insights. Ask me anything about your teams, players, or strategy.<br><br>
-                        <em>What's on your mind?</em>
+                        <strong>what's up, i'm jaylen hendricks.</strong><br><br>
+                        i've got your cpr rankings, player niv, and trade logic loaded. ask me anything about teams, players, or strategy.<br><br>
+                        <em>what's on your mind?</em>
                     </div>
                 </div>
             </div>
@@ -415,7 +484,7 @@ async function sendMessage() {
     try {
         const dbContext = await loadDatabaseContext();
         
-        const response = await fetch(`${API_BASE}/chat`, {
+        const response = await fetch(`/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -432,7 +501,9 @@ async function sendMessage() {
         chatMessages = chatMessages.filter(m => m.id !== loadingId);
         
         // Add assistant response
-        chatMessages.push({ role: 'assistant', content: data.response });
+        const assistantText = (data && data.data && data.data.response && (data.data.response.content || data.data.response))
+            || data.response?.content || data.response || data.message || '...';
+        chatMessages.push({ role: 'assistant', content: assistantText });
         
         renderChatMessages();
     } catch (error) {
@@ -450,7 +521,6 @@ async function sendMessage() {
     }
 }
 
-// ... (rest of the code remains the same)
 function renderChatMessages() {
     const container = document.getElementById('chat-messages');
     const isScrolledToBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
@@ -460,7 +530,7 @@ function renderChatMessages() {
             return `
                 <div class="message assistant">
                     <div class="message-avatar">
-                        <img src="jaylen.png" alt="Jaylen Hendricks">
+                        <img src="/assets/jaylen.png" alt="Jaylen Hendricks">
                     </div>
                     <div class="message-bubble">
                         <div class="loading-spinner"></div>
@@ -473,10 +543,7 @@ function renderChatMessages() {
         return `
             <div class="message ${isUser ? 'user' : 'assistant'}">
                 <div class="message-avatar">
-                    ${isUser ? 
-                        '<img src="https://ui-avatars.com/api/?name=User&background=003368&color=fff" alt="User">' : 
-                        '<img src="jaylen.png" alt="Jaylen Hendricks">'
-                    }
+                    ${isUser ? '' : '<img src="/assets/jaylen.png" alt="Jaylen Hendricks">'}
                 </div>
                 <div class="message-bubble">
                     <div class="message-text">${msg.content}</div>

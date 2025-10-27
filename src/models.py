@@ -143,9 +143,9 @@ class CPRMetrics:
     sli: float  # Strength of Lineup Index
     bsi: float  # Bench Strength Index
     smi: float  # Schedule Momentum Index
-    ingram: float  # Ingram Index (injury/availability)
-    alvarado: float  # Alvarado Index (performance consistency)
-    zion: float  # Zion Index (explosive plays)
+    ingram: float  # Ingram Index (HHI positional balance)
+    alvarado: float  # Alvarado Index (Shapley/ADP value efficiency)
+    zion: float  # Zion Tensor (4D strength of schedule)
     rank: int = 0
     actual_rank: int = 0
     wins: int = 0

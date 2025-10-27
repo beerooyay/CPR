@@ -17,15 +17,16 @@ CPR is a novel fantasy sports-agnostic ranking system that uses:
 
 ### The CPR Equation
 ```
-CPR = (0.30×SLI + 0.25×BSI + 0.20×Ingram + 0.15×Alvarado + 0.10×Zion) × PositionFactor
+CPR = (0.30×SLI + 0.20×BSI + 0.15×SMI + 0.15×Ingram + 0.10×Alvarado + 0.10×Zion)
 ```
 
-**Components:**
-- **SLI** (Strength of Lineup Index) — Top players' NIV scores
-- **BSI** (Bench Strength Index) — Bench depth & roster balance
-- **Ingram Index** — Player health and availability factors
-- **Alvarado Index** — Performance consistency & reliability
-- **Zion Index** — Explosive play potential & upside
+**REVOLUTIONARY Components:**
+- **SLI** (Strength of Lineup Index) — Starter fantasy points per game
+- **BSI** (Bench Strength Index) — Bench depth and quality
+- **SMI** (Schedule Momentum Index) — Recent performance trends
+- **Ingram Index** — HHI-based positional balance (70% starters, 30% bench)
+- **Alvarado Index** — Shapley Value / ADP efficiency (draft value)
+- **Zion Tensor** — 4D Strength of Schedule (Traditional, Volatility, Positional, Efficiency)
 
 ### NIV (Normalized Impact Value)
 NIV is our player-level metric that combines:
@@ -67,7 +68,9 @@ See the [Setup Guide](docs/setup.md) for detailed installation and deployment in
 3. **Configure environment:**
    ```bash
    cp .env.example .env
-   # Edit .env with your API keys and configuration
+   # Edit .env with your REAL API keys:
+   # - Add your OpenRouter API key for Jaylen AI
+   # - Add your Firebase service account JSON file
    ```
 
 4. **Deploy the application:**
