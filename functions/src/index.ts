@@ -34,44 +34,7 @@ function createResponse(data: any, success: boolean = true) {
   };
 }
 
-// Helper function to call MCP servers via Python (reserved for future use)
-// Currently using Python pipeline integration instead
-/* eslint-disable @typescript-eslint/no-unused-vars */
-async function callMCPServer(serverType: 'sleeper' | 'firebase', method: string, params: any = {}): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const pythonPath = path.join(__dirname, '../../mcp', `${serverType}_server.py`);
-    const child = spawn('python3', [pythonPath, method, JSON.stringify(params)]);
-    
-    let stdout = '';
-    let stderr = '';
-    
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    child.on('close', (code) => {
-      if (code === 0) {
-        try {
-          const result = JSON.parse(stdout);
-          resolve(result);
-        } catch (e) {
-          reject(new Error(`Failed to parse MCP response: ${e}`));
-        }
-      } else {
-        reject(new Error(`MCP server failed: ${stderr}`));
-      }
-    });
-    
-    child.on('error', (error) => {
-      reject(new Error(`Failed to spawn MCP server: ${error.message}`));
-    });
-  });
-}
-/* eslint-enable @typescript-eslint/no-unused-vars */
+// MCP server integration will be added in future version
 
 // Helper function to run Python pipeline
 async function runPythonPipeline(leagueId: string): Promise<any> {
@@ -314,7 +277,6 @@ export const rankings = functions
       
       const db = admin.firestore();
       const leagueId = request.query.league_id as string || DEFAULT_LEAGUE_ID;
-      const season = parseInt(request.query.season as string) || CURRENT_SEASON;
       const forceRefresh = request.query.refresh === 'true';
       
       // Check if we have recent data (unless force refresh)
@@ -438,24 +400,19 @@ export const teamRoster = functions.https.onRequest(async (request: Request, res
       
       const teamData = teamSnapshot.docs[0].data();
       
-      // Get NIV data for team players
-      const nivAllSnap = await db.collection('niv_rankings')
-        .where('league_id', '==', leagueId)
-        .where('season', '==', season)
-        .get();
-
+      // Get NIV data for team players from latest document
+      const nivLatestDoc = await db.collection('niv_rankings').doc('latest').get();
+      
       let teamNIVData: any[] = [];
-      if (!nivAllSnap.empty) {
-        // find latest week doc
-        let latest: any = null; let maxWeek = -1;
-        for (const d of nivAllSnap.docs) {
-          const data = d.data();
-          if (typeof data.week === 'number' && data.week > maxWeek) { maxWeek = data.week; latest = data; }
-        }
-        const allNIVData = (latest && (latest.player_rankings || latest.niv_data || [])) || [];
+      if (nivLatestDoc.exists) {
+        const nivData = nivLatestDoc.data();
+        const allNIVData = nivData?.player_rankings || [];
         teamNIVData = allNIVData.filter((player: any) => 
-          teamData.roster.includes(player.player_id)
+          teamData.roster && teamData.roster.includes(player.player_id)
         );
+        console.log(`Found ${teamNIVData.length} players for team ${teamName}`);
+      } else {
+        console.log('No NIV data found in latest document');
       }
       
       const result = {
@@ -504,7 +461,34 @@ export const chat = functions
 
       // Prepare OpenRouter request
       const model = (request.query.model as string) || 'openai/gpt-4o-mini';
-      const systemPrompt = `you are jaylen hendricks, the cpr-nfl analyst. be concise, direct, and use the provided context when helpful. keep outputs tight and actionable.`;
+      const systemPrompt = `you are jaylen hendricks (@jhendricksespn), the calm, witty, and super useful best friend with sarcastic older brother vibes in the fantasy football league group chat. you're the undisputed guru for fantasy NFL football and specifically for the legion fantasy football league, because you live in the data, watch every game, and your takes are laid back but lethally accurate. you're here to help, roast, and drop undeniable knowledge.
+
+your knowledge base:
+you are plugged into the matrix. you have real-time access to the sleeper api for all league data (standings, rosters, matchups) and the historical CPR archives from our firestore database. you can also search the web for breaking news and analyze documents like csvs or pdfs.
+
+your arsenal (what you know):
+- CPR (commissioner's power rankings): our secret weapon. you live and breathe this shit. it's your language for describing team strength.
+- NIV (normalized impact value): the atomic unit of player value. you know it's the truest measure of a player's impact, way beyond raw fantasy points.
+- the indices (SLI, BSI, SMI, ingram (II), alvarado (AI), zion (ZI)): you know exactly what each one means and how they interact. SLI is starters, BSI is bench, SMI is momentum, ingram is HHI positional balance, alvarado is Shapley/ADP value efficiency, and zion is 4D strength of schedule tensor.
+- league data: you're plugged directly into the matrix. you have access to real-time sleeper api data (rosters, matchups, scores) and the historical CPR archives from firestore.
+
+the rules of your reality:
+- everything is lowercase. always.
+- the exceptions: you cap player positions (like RB, WR, TE), our metrics (CPR, NIV, SLI, BSI, SMI), and for FUCKING emphasis.
+- you're a homie. talk like you're texting the group chat. keep it casual, comfortable, no corporate bullshit.
+- swear when it feels right. 'fuck,' 'shit,' 'damn.' it's how we talk about sports.
+- be ruthless but fair. roast bad moves but explain the logic. praise genius pickups. it's the big brother way.
+- no bias. ever. you call it like the numbers show it, even if it's a tough truth.
+- short paragraphs. two or three sentences, then a line break. keep it readable.
+
+your playbook for every response:
+your analysis must always be grounded in the data. start with the vibe, then hit 'em with the numbers. explain the 'why' using our metrics.
+
+never just say "this team is better." prove it. say "this team is better because their ingram index is 0.85, meaning they're balanced as fuck with diversified positions, while the other team has a 0.3 ingram showing they're over-concentrated in one position."
+
+always give actionable, specific advice based on your analysis of CPR, NIV, recent sleeper data, injury status, and schedule strength.
+
+you're the voice of the data, but with the soul of a fan who's been in this league since day one. now go talk some shit and drop some knowledge.`;
       const orMessages = [
         { role: 'system', content: systemPrompt },
         ...(context ? [{ role: 'system', content: `context:\n${JSON.stringify(context).slice(0, 4000)}` }] : []),
@@ -641,18 +625,18 @@ export const niv = functions
         }
       }
       
-      console.log('Running fresh NIV calculation via Python pipeline...');
+      console.log('No recent NIV data, using any available cached data...');
       
-      try {
-        // Run pipeline to get fresh data
-        await runPythonPipeline(leagueId);
-        
-        // Get fresh NIV data
-        const latestDoc = await db.collection('niv_rankings').doc('latest').get();
-        
-        if (!latestDoc.exists) {
-          throw new Error('Pipeline completed but no NIV data found');
-        }
+      // Fall back to any available cached data
+      const latestDoc = await db.collection('niv_rankings').doc('latest').get();
+      
+      if (!latestDoc.exists) {
+        response.status(404).json(handleError(
+          new Error('No NIV data available. Please run the pipeline to generate fresh data.'), 
+          'niv'
+        ));
+        return;
+      }
         
         const nivData = latestDoc.data();
         const playerRankings = nivData?.player_rankings || [];
@@ -687,26 +671,18 @@ export const niv = functions
         const teamNiv = Array.from(teamNivMap.values())
           .sort((a, b) => b.avg_niv - a.avg_niv);
         
-        const result = {
-          team_niv: teamNiv,
-          player_rankings: playerRankings,
-          league_id: leagueId,
-          season: season,
-          calculated_at: nivData?.calculation_timestamp,
-          total_players: playerRankings.length,
-          total_teams: teamNiv.length,
-          source: 'fresh_calculation'
-        };
-        
-        response.status(200).json(createResponse(result));
-        
-      } catch (pipelineError) {
-        console.error('NIV pipeline failed:', pipelineError);
-        response.status(404).json(handleError(
-          new Error('No NIV data available. Pipeline failed to generate fresh data.'), 
-          'niv'
-        ));
-      }
+      const result = {
+        team_niv: teamNiv,
+        player_rankings: playerRankings,
+        league_id: leagueId,
+        season: season,
+        calculated_at: nivData?.calculation_timestamp,
+        total_players: playerRankings.length,
+        total_teams: teamNiv.length,
+        source: 'cached_fallback'
+      };
+      
+      response.status(200).json(createResponse(result));
       
     } catch (error) {
       console.error('NIV rankings error:', error);
@@ -714,6 +690,7 @@ export const niv = functions
     }
   });
 });
+
 
 // ---- Aliases (declared last) ----
 export const league = leagueStats;   // GET /api/league

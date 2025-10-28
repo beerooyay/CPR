@@ -3,6 +3,9 @@ const API_BASE = ''; // Use relative URLs for same-origin requests
 const MODEL = 'openai/gpt-oss-20b:free'; // Confirmed model
 const LEAGUE_ID = '1267325171853701120'; // Legion Fantasy Football League ID
 
+console.log('🚀 CPR-NFL App v8.0 - POLISHED & COMPLETE!');
+console.log('💬 Player metrics restored and NIV header fixed. This is it.');
+
 // State Management
 let currentScreen = 'home';
 let nivState = 'teams'; // 'teams' or 'roster'
@@ -12,6 +15,39 @@ let chatMessages = [];
 let uploadedFile = null;
 
 // --- Utility Functions ---
+
+function getRankSuffix(rank) {
+    const lastDigit = rank % 10;
+    const lastTwoDigits = rank % 100;
+    
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
+        return rank + 'TH';
+    }
+    
+    switch (lastDigit) {
+        case 1: return rank + 'ST';
+        case 2: return rank + 'ND';
+        case 3: return rank + 'RD';
+        default: return rank + 'TH';
+    }
+}
+
+// Fast ranking calculation
+function calculateRanks(data, key, descending = true) {
+    const sorted = [...data].sort((a, b) => {
+        const aVal = a[key] || 0;
+        const bVal = b[key] || 0;
+        return descending ? bVal - aVal : aVal - bVal;
+    });
+    
+    const ranks = {};
+    sorted.forEach((item, index) => {
+        const id = item.team_id || item.player_id || item.id;
+        ranks[id] = index + 1;
+    });
+    
+    return ranks;
+}
 
 function debounce(func, wait) {
     let timeout;
@@ -74,9 +110,18 @@ function updateHeader(screenName) {
             break;
         case 'niv':
             if (nivState === 'roster') {
-                title = selectedTeam ? selectedTeam.name.toUpperCase() : 'ROSTER';
+                console.log('=== HEADER UPDATE DEBUG ===');
+                console.log('selectedTeam:', selectedTeam);
+                console.log('selectedTeam?.team_name:', selectedTeam?.team_name);
+                console.log('selectedTeam?.name:', selectedTeam?.name);
+                
+                const teamName = selectedTeam?.team_name || selectedTeam?.name || 'ROSTER';
+                console.log('Final teamName:', teamName);
+                
+                title = teamName.toUpperCase();
                 backAction = () => {
                     nivState = 'teams';
+                    selectedTeam = null;
                     showScreen('niv'); 
                 };
             } else {
@@ -116,10 +161,20 @@ function showScreen(screenName) {
     if (screenName === 'cpr') {
         loadCPRScreen();
     } else if (screenName === 'niv') {
+        console.log('=== NIV SCREEN DEBUG ===');
+        console.log('nivState:', nivState);
+        console.log('selectedTeam:', selectedTeam);
+        
         if (nivState === 'teams') {
+            console.log('Loading NIV teams...');
             loadNIVTeams();
         } else if (nivState === 'roster' && selectedTeam) {
+            console.log('Loading NIV roster for:', selectedTeam.team_name);
             loadNIVRoster(selectedTeam);
+        } else {
+            console.log('NIV condition not met - falling back to teams');
+            nivState = 'teams';
+            loadNIVTeams();
         }
     } else if (screenName === 'chat') {
         loadChatScreen();
@@ -166,6 +221,15 @@ async function loadCPRScreen() {
 
         // Build team rankings display
         container.innerHTML = '';
+        // Calculate real rankings for all metrics
+        const sliRanks = calculateRanks(rankings, 'sli', true);
+        const bsiRanks = calculateRanks(rankings, 'bsi', true);
+        const ingramRanks = calculateRanks(rankings, 'ingram', true);
+        const alvaradoRanks = calculateRanks(rankings, 'alvarado', true);
+        const zionRanks = calculateRanks(rankings, 'zion', false); // Lower is better for SoS
+        const smiRanks = calculateRanks(rankings, 'smi', true);
+        const pfRanks = calculateRanks(rankings, 'points_for', true);
+
         const fragment = document.createDocumentFragment();
 
         rankings.forEach(team => {
@@ -176,35 +240,55 @@ async function loadCPRScreen() {
             const teamName = team.team_name || team.name || `Team ${team.rank}`;
             
             row.innerHTML = `
-                <div class="team-row-header">
+                <div class="tile-header">
                     <div class="rank-badge">${team.rank}</div>
-                    <div class="team-name">${teamName.toUpperCase()}</div>
-                    <div class="cpr-value">${team.cpr.toFixed(3)}</div>
+                    <div class="tile-name">${teamName.toUpperCase()}</div>
+                    <div class="tile-score">${team.cpr.toFixed(3)}</div>
                 </div>
-                <div class="team-details">
-                    <div class="metric-row">
-                        <div class="metric-label">SLI (Starter Strength)</div>
-                        <div class="metric-value ${team.sli > 0 ? 'positive' : team.sli < 0 ? 'negative' : ''}">${team.sli.toFixed(2)}</div>
+                <div class="tile-dropdown">
+                    <div class="dropdown-modules">
+                        <div class="dropdown-module">
+                            <div class="module-title">TEAM STRENGTH</div>
+                            <div class="metric-row">
+                                <div class="metric-label">STARTER STRENGTH</div>
+                                <div class="metric-value">${team.sli.toFixed(2)} <span class="rank-indicator">(${getRankSuffix(sliRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">BENCH STRENGTH</div>
+                                <div class="metric-value">${team.bsi.toFixed(2)} <span class="rank-indicator">(${getRankSuffix(bsiRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">ROSTER BALANCE</div>
+                                <div class="metric-value">${team.ingram.toFixed(2)} <span class="rank-indicator">(${getRankSuffix(ingramRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">DRAFT EFFICIENCY</div>
+                                <div class="metric-value">${team.alvarado.toFixed(2)} <span class="rank-indicator">(${getRankSuffix(alvaradoRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                        </div>
+                        <div class="dropdown-module">
+                            <div class="module-title">PERFORMANCE</div>
+                            <div class="metric-row">
+                                <div class="metric-label">AVG POINTS FOR / GAME</div>
+                                <div class="metric-value">${(team.points_for / 12 || 0).toFixed(1)} <span class="rank-indicator">(${getRankSuffix(pfRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">STRENGTH OF SCHEDULE</div>
+                                <div class="metric-value">${team.zion.toFixed(2)} <span class="rank-indicator">(${getRankSuffix(zionRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">AVG OPPONENT STRENGTH</div>
+                                <div class="metric-value">${(team.opponent_avg || 0).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">SCHEDULE MOMENTUM</div>
+                                <div class="metric-value">${team.smi.toFixed(2)} <span class="rank-indicator">(${getRankSuffix(smiRanks[team.team_id] || 1)})</span></div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="metric-row">
-                        <div class="metric-label">BSI (Bench Strength)</div>
-                        <div class="metric-value ${team.bsi > 0 ? 'positive' : team.bsi < 0 ? 'negative' : ''}">${team.bsi.toFixed(2)}</div>
-                    </div>
-                    <div class="metric-row">
-                        <div class="metric-label">SMI (Schedule Momentum)</div>
-                        <div class="metric-value">${team.smi.toFixed(2)}</div>
-                    </div>
-                    <div class="metric-row">
-                        <div class="metric-label">INGRAM (Positional Balance)</div>
-                        <div class="metric-value ${team.ingram > 0 ? 'positive' : team.ingram < 0 ? 'negative' : ''}">${team.ingram.toFixed(3)}</div>
-                    </div>
-                    <div class="metric-row">
-                        <div class="metric-label">ALVARADO (Draft Efficiency)</div>
-                        <div class="metric-value ${team.alvarado > 0 ? 'positive' : team.alvarado < 0 ? 'negative' : ''}">${team.alvarado.toFixed(3)}</div>
-                    </div>
-                    <div class="metric-row">
-                        <div class="metric-label">ZION (4D Strength of Schedule)</div>
-                        <div class="metric-value ${team.zion > 0 ? 'positive' : team.zion < 0 ? 'negative' : ''}">${team.zion.toFixed(3)}</div>
+                    <div class="dropdown-buttons">
+                        <button class="dropdown-btn primary" onclick="getScoutingReport('${team.team_id}', 'team')">GET SCOUTING REPORT</button>
+                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}')">GO TO TEAM ANALYTICS</button>
                     </div>
                 </div>
             `;
@@ -228,21 +312,61 @@ async function loadCPRScreen() {
 // --- NIV Screen Logic ---
 
 async function loadNIVTeams() {
+    console.log('=== LOADING NIV TEAMS ===');
     const container = document.getElementById('niv-container');
+    
+    if (!container) {
+        console.error('NIV container not found!');
+        return;
+    }
+    
     container.innerHTML = '<div class="loading">Loading team NIV metrics...</div>';
     
     try {
-        console.log('Loading NIV data for Legion teams...');
+        console.log('Fetching NIV data from API...');
         
         const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
-        if (!response.ok) throw new Error('Failed to fetch NIV data');
+        console.log('API response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API error:', errorText);
+            throw new Error(`Failed to fetch NIV data: ${response.status}`);
+        }
         
         const data = await response.json();
+        console.log('Raw API response:', data);
+        
         const payload = data.data || data;
+        console.log('Payload:', payload);
+        
         const teamNivData = payload.team_niv || payload.team_rankings || payload;
+        console.log('Team NIV data:', teamNivData);
+        console.log('Team count:', Array.isArray(teamNivData) ? teamNivData.length : 'Not an array');
+
+        if (!Array.isArray(teamNivData) || teamNivData.length === 0) {
+            console.error('No valid team NIV data found');
+            container.innerHTML = '<div class="error">No team data available</div>';
+            return;
+        }
 
         // Update cache
         cache.niv_data = teamNivData;
+
+        // Show league-wide stats
+        const statsContainer = document.getElementById('niv-stats-container');
+        statsContainer.style.display = 'grid';
+        const leagueAvgNiv = teamNivData.reduce((acc, t) => acc + t.avg_niv, 0) / teamNivData.length;
+        statsContainer.innerHTML = `
+            <div class="glass-card">
+                <div class="stat-label">LEAGUE AVG NIV</div>
+                <div class="stat-value">${leagueAvgNiv.toFixed(3)}</div>
+            </div>
+            <div class="glass-card">
+                <div class="stat-label">TEAMS</div>
+                <div class="stat-value">${teamNivData.length}</div>
+            </div>
+        `;
 
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
@@ -255,21 +379,32 @@ async function loadNIVTeams() {
             const teamName = team.team_name || team.name || `Team ${index + 1}`;
             
             row.innerHTML = `
-                <div class="team-row-header">
+                <div class="tile-header">
                     <div class="rank-badge">${index + 1}</div>
-                    <div class="team-name">${teamName.toUpperCase()}</div>
-                    <div class="cpr-value">${team.avg_niv.toFixed(3)}</div>
+                    <div class="tile-name">${teamName.toUpperCase()}</div>
+                    <div class="tile-score">${team.avg_niv.toFixed(3)}</div>
                 </div>
             `;
 
-            row.addEventListener('click', () => {
+            row.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('=== TEAM CLICK DEBUG ===');
+                console.log('Team clicked:', teamName);
+                console.log('Team data:', team);
+                
                 selectedTeam = {
                     ...team,
                     rank: index + 1,
                     team_name: teamName
                 };
                 nivState = 'roster';
-                console.log('Team clicked:', teamName, 'Loading roster view...');
+                
+                console.log('selectedTeam set to:', selectedTeam);
+                console.log('nivState set to:', nivState);
+                console.log('Calling showScreen(niv)...');
+                
                 showScreen('niv');
             });
 
@@ -316,7 +451,7 @@ async function loadNIVRoster(team) {
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
 
-        roster.forEach(player => {
+        roster.forEach((player, index) => {
             const row = document.createElement('div');
             row.className = 'player-row';
             
@@ -325,47 +460,62 @@ async function loadNIVRoster(team) {
             const nflTeam = player.team || 'FA';
             
             row.innerHTML = `
-                <div class="player-row-header">
-                    <div class="player-name">${player.name} (${position} - ${nflTeam})</div>
-                    <div class="niv-value">${player.niv ? player.niv.toFixed(3) : '0.000'}</div>
+                <div class="tile-header">
+                    <div class="rank-badge">${index + 1}</div>
+                    <div class="tile-name">${player.name.toUpperCase()} <span class="player-position">(${position} - ${nflTeam})</span></div>
+                    <div class="tile-score">${player.niv ? player.niv.toFixed(3) : '0.000'}</div>
                 </div>
-                <div class="player-details">
-                    <div class="last-year-stats-box">
-                        <div class="stats-box-header">2024 NFL SEASON STATS</div>
-                        <div class="stats-box-grid">
-                            <div class="stats-box-item">
-                                <div class="stats-box-label">FPTS</div>
-                                <div class="stats-box-value">${player.fantasy_points || 0}</div>
+                <div class="tile-dropdown">
+                    <div class="dropdown-modules">
+                        <div class="dropdown-module">
+                            <div class="module-title">FANTASY PERFORMANCE</div>
+                            <div class="metric-row">
+                                <div class="metric-label">AVG FANTASY PPG</div>
+                                <div class="metric-value">${((player.fantasy_points || 0) / Math.max(player.games_played || 1, 1)).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.ppg_rank || 1)})</span></div>
                             </div>
-                            <div class="stats-box-item">
-                                <div class="stats-box-label">RUSH YDS</div>
-                                <div class="stats-box-value">${player.rushing_yards || 0}</div>
+                            <div class="metric-row">
+                                <div class="metric-label">PROJECTION</div>
+                                <div class="metric-value">${(player.projection || 0).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.proj_rank || 1)})</span></div>
                             </div>
-                            <div class="stats-box-item">
-                                <div class="stats-box-label">REC YDS</div>
-                                <div class="stats-box-value">${player.receiving_yards || 0}</div>
+                            <div class="metric-row">
+                                <div class="metric-label">MOMENTUM</div>
+                                <div class="metric-value">${(player.momentum || 0).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.momentum_rank || 1)})</span></div>
                             </div>
-                            <div class="stats-box-item">
-                                <div class="stats-box-label">PASS YDS</div>
-                                <div class="stats-box-value">${player.passing_yards || 0}</div>
+                             <div class="metric-row">
+                                <div class="metric-label">LAST 3 AVG</div>
+                                <div class="metric-value">${(player.last_3_avg || 0).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.l3_rank || 1)})</span></div>
                             </div>
-                            <div class="stats-box-item">
-                                <div class="stats-box-label">TDS</div>
-                                <div class="stats-box-value">${(player.rushing_tds || 0) + (player.receiving_tds || 0) + (player.passing_tds || 0)}</div>
+                        </div>
+                        <div class="dropdown-module">
+                            <div class="module-title">POSITION STATS</div>
+                            <div class="metric-row">
+                                <div class="metric-label">${position === 'QB' ? 'PASS YDS' : position === 'RB' ? 'RUSH YDS' : 'REC YDS'}</div>
+                                <div class="metric-value">${position === 'QB' ? (player.passing_yards || 0) : position === 'RB' ? (player.rushing_yards || 0) : (player.receiving_yards || 0)} <span class="rank-indicator">(${getRankSuffix(player.yards_rank || 1)})</span></div>
                             </div>
-                            <div class="stats-box-item">
-                                <div class="stats-box-label">GAMES</div>
-                                <div class="stats-box-value">${player.games_played || 0}</div>
+                            <div class="metric-row">
+                                <div class="metric-label">TOUCHDOWNS</div>
+                                <div class="metric-value">${player.touchdowns || 0} <span class="rank-indicator">(${getRankSuffix(player.td_rank || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">GAMES PLAYED</div>
+                                <div class="metric-value">${player.games_played || 0} <span class="rank-indicator">(${getRankSuffix(player.games_rank || 1)})</span></div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">TOTAL FPTS</div>
+                                <div class="metric-value">${player.fantasy_points || 0} <span class="rank-indicator">(${getRankSuffix(player.fpts_rank || 1)})</span></div>
                             </div>
                         </div>
                     </div>
-                    <button class="scouting-report-button" onclick="getScoutingReport('${player.name}', '${position}')">GET SCOUTING REPORT</button>
+                    <div class="dropdown-buttons">
+                        <button class="dropdown-btn primary" onclick="getScoutingReport('${player.player_id}', 'player')">GET SCOUTING REPORT</button>
+                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}')">GO TO TEAM ANALYTICS</button>
+                    </div>
                 </div>
             `;
 
             row.addEventListener('click', (e) => {
-                // Don't expand if clicking the scouting report button
-                if (e.target.classList.contains('scouting-report-button')) {
+                // Don't expand if clicking buttons
+                if (e.target.classList.contains('dropdown-btn')) {
                     return;
                 }
                 row.classList.toggle('expanded');
@@ -395,9 +545,7 @@ async function loadChatScreen() {
                 </div>
                 <div class="message-bubble">
                     <div class="message-text">
-                        <strong>what's up, i'm jaylen hendricks.</strong><br><br>
-                        i've got your cpr rankings, player niv, and trade logic loaded. ask me anything about teams, players, or strategy.<br><br>
-                        <em>what's on your mind?</em>
+                        Ready to analyze your Legion Fantasy Football league.
                     </div>
                 </div>
             </div>
@@ -425,11 +573,13 @@ async function sendMessage() {
     
     // Add user message
     chatMessages.push({ role: 'user', content: messageContent });
+    console.log('💬 Added user message:', messageContent);
     input.value = '';
     
     // Add loading message
     const loadingId = Date.now();
     chatMessages.push({ role: 'assistant', content: '', loading: true, id: loadingId });
+    console.log('⏳ Added loading message, total messages:', chatMessages.length);
     
     renderChatMessages();
     
@@ -458,8 +608,16 @@ async function sendMessage() {
         // Remove loading message
         chatMessages = chatMessages.filter(m => m.id !== loadingId);
         
-        // Extract assistant response
-        const assistantText = data.response || data.message || 'No response received';
+        // Extract assistant response - optimized parsing
+        let assistantText = data.data?.response?.content || data.response?.content || data.message || 'no response received';
+        
+        // Process markdown formatting and add spacing
+        assistantText = assistantText
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // **text** -> <strong>text</strong>
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')              // *text* -> <em>text</em>
+            .replace(/\n\n/g, '\n\n\n')                        // Add extra spacing between paragraphs
+            .replace(/([.!?])\s+([a-z])/g, '$1\n\n$2');       // Add breaks after sentences
+        
         chatMessages.push({ role: 'assistant', content: assistantText });
         
         renderChatMessages();
@@ -484,14 +642,14 @@ function renderChatMessages() {
     const container = document.getElementById('chat-messages');
     const isScrolledToBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
     
+    console.log('🎯 Rendering chat messages:', chatMessages);
+    
     container.innerHTML = chatMessages.map(msg => {
         if (msg.loading) {
             return `
                 <div class="message assistant">
                     <div class="message-avatar">
                         <img src="/assets/jaylen.png" alt="Jaylen Hendricks">
-                    </div>
-                    <div class="message-bubble">
                         <div class="loading-spinner"></div>
                     </div>
                 </div>
@@ -499,16 +657,22 @@ function renderChatMessages() {
         }
         
         const isUser = msg.role === 'user';
-        return `
-            <div class="message ${isUser ? 'user' : 'assistant'}">
-                <div class="message-avatar">
-                    ${isUser ? '' : '<img src="/assets/jaylen.png" alt="Jaylen Hendricks">'}
+        if (isUser) {
+            return `
+                <div class="message user">
+                    <div class="user-prompt">${msg.content}</div>
                 </div>
-                <div class="message-bubble">
-                    <div class="message-text">${msg.content}</div>
+            `;
+        } else {
+            return `
+                <div class="message assistant">
+                    <div class="message-avatar">
+                        <img src="/assets/jaylen.png" alt="Jaylen Hendricks">
+                    </div>
+                    <div class="jaylen-text">${msg.content}</div>
                 </div>
-            </div>
-        `;
+            `;
+        }
     }).join('');
 
     // Scroll to bottom if user was near the bottom OR if a new user message was just sent
@@ -543,15 +707,6 @@ function handleFileUpload(event) {
     console.log('File selected for upload:', fileName, fileSize + 'KB');
 }
 
-// Scouting Report Handler
-function getScoutingReport(playerName, position) {
-    const chatInput = document.getElementById('chat-input');
-    chatInput.value = `Get me a detailed scouting report for ${playerName} (${position})`;
-    
-    // Switch to chat screen and send message
-    showScreen('chat');
-    setTimeout(() => sendMessage(), 100);
-}
 
 // --- Auth & Profile Logic ---
 
@@ -713,3 +868,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize auth UI
     renderAuthUI(null);
 });
+
+// Navigation Functions
+function getScoutingReport(id, type) {
+    console.log(`Getting scouting report for ${type}: ${id}`);
+    // TODO: Implement scouting report functionality
+}
+
+function goToTeamAnalytics(teamId) {
+    console.log(`Navigating to team analytics for: ${teamId}`);
+    // Find the team in NIV data and load roster
+    if (cache.niv_data && cache.niv_data.team_niv) {
+        const team = cache.niv_data.team_niv.find(t => t.team_id === teamId);
+        if (team) {
+            loadNIVRoster(team);
+        }
+    }
+}

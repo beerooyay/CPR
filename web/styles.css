@@ -15,11 +15,15 @@ body {
     font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background: #003368;
     color: #ffffff;
-    overflow-x: hidden;
+    overflow-x: hidden !important;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-transform: uppercase;
     text-rendering: optimizeLegibility;
+    width: 100vw;
+    max-width: 100vw !important;
+    position: relative;
+    box-sizing: border-box;
 }
 
 h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
@@ -30,17 +34,25 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 
 #app {
     min-height: 100vh;
+    width: 100%;
+    max-width: 100vw;
     display: flex;
     flex-direction: column;
     background: #003368; /* NFL blue background */
+    overflow-x: hidden;
+    position: relative;
 }
 
 .screen {
     width: 100%;
+    max-width: 100vw;
     height: 100%;
     display: none; /* Controlled by JS */
     flex-direction: column;
     background: #003368;
+    overflow-x: hidden !important;
+    box-sizing: border-box;
+    position: relative;
 }
 
 .screen.active {
@@ -48,6 +60,17 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     opacity: 1;
     visibility: visible;
     z-index: 1;
+}
+
+/* Consistent container for all screens */
+.screen-container {
+    flex: 1;
+    width: 100%;
+    max-width: 100vw;
+    margin: 0 auto;
+    padding: 20px;
+    box-sizing: border-box;
+    overflow-x: hidden;
 }
 
 /* Home Screen */
@@ -61,6 +84,7 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     margin: 0 auto;
     width: 100%;
     padding: 20px;
+    box-sizing: border-box;
 }
 
 #home-screen .fba-logo {
@@ -207,7 +231,7 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 }
 
 .twitter-handle {
-    color: #003368;
+    color: rgba(255, 255, 255, 0.8);
     text-decoration: none;
     transition: color 0.3s ease;
 }
@@ -263,7 +287,13 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
-    padding: 108px 20px 20px 20px;
+    padding: 100px 20px 20px 20px; /* Add top padding for header */
+    margin-bottom: 20px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100vw;
+    position: relative;
+    z-index: 50;
 }
 
 .auth-buttons-grid {
@@ -390,21 +420,56 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 
 /* Scroll Container */
 .scroll-container {
-    flex: 1;
+    flex-grow: 1;
     overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    padding: 20px;
+    -webkit-overflow-scrolling: touch; /* for smooth scrolling on iOS */
+    position: relative; /* Establish stacking context */
+    z-index: 10; /* Lower than tiles */
 }
 
-/* Additions: chat styling overrides */
-.message.assistant .message-text {
-    color: #6ebaff !important;
+/* Loading Text - Match Global Font Style */
+.loading, .error {
+    font-family: 'Work Sans', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+    text-align: center;
+    padding: 40px 20px;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
+.error {
+    color: rgba(239, 68, 68, 0.8);
+    animation: none;
+}
+
+/* Chat styling - all white text */
+.message.assistant .message-text,
+.message.user .message-text,
+.message-text {
+    color: #ffffff !important;
 }
 
 .message.user .message-avatar {
     display: none;
 }
+
+
+
+.message-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
 
 /* NIV container needs top padding when stats are hidden */
 #niv-screen #niv-container {
@@ -416,8 +481,8 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     padding-top: 0;
 }
 
-/* Team Rows */
-.team-row {
+/* Team Rows & Player Rows - Consistent Styling */
+.team-row, .player-row {
     position: relative;
     background: rgba(255, 255, 255, 0.03);
     backdrop-filter: blur(10px);
@@ -432,7 +497,7 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     transform: translateZ(0);
 }
 
-.team-row:hover {
+.team-row:hover, .player-row:hover {
     background: rgba(255, 255, 255, 0.06);
     border-color: rgba(0, 51, 104, 0.25);
     transform: translateX(4px);
@@ -479,19 +544,24 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     letter-spacing: 1.5px;
 }
 
-.cpr-value {
+.cpr-value, .niv-value {
     font-size: 24px;
     font-weight: 800;
-    color: #ffffff;
+    color: #ffffff !important;
     margin-left: auto;
 }
 
-.team-details {
+/* Player Row has no specific styling and now fully relies on the uniform tile system */
+
+.team-details, .player-details {
     display: none;
     margin-top: 20px;
     padding-top: 20px;
     border-top: 1px solid rgba(0, 51, 104, 0.15);
     animation: slideIn 0.3s ease;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 12px;
+    padding: 16px;
 }
 
 @keyframes slideIn {
@@ -499,7 +569,8 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     to { opacity: 1; transform: translateY(0); }
 }
 
-.team-row.expanded .team-details {
+.team-row.expanded .team-details,
+.player-row.expanded .player-details {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
@@ -524,34 +595,11 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     color: #ffffff;
 }
 
-.metric-value.positive {
-    color: #34d399;
+.metric-value, .metric-value.positive, .metric-value.negative {
+    color: #fff !important;
 }
 
-.metric-value.negative {
-    color: #f87171;
-}
-
-/* Player Rows */
-.player-row {
-    position: relative;
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(0, 51, 104, 0.12);
-    border-radius: 16px;
-    padding: 18px;
-    margin-bottom: 12px;
-    cursor: pointer;
-    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.player-row:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(0, 51, 104, 0.25);
-    transform: translateX(4px);
-    box-shadow: 0 8px 24px rgba(0, 51, 104, 0.15);
-}
-
+/* Player Row Header - Optimized */
 .player-row-header {
     display: flex;
     justify-content: space-between;
@@ -559,9 +607,8 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 }
 
 .player-name {
-    font-size: 14px;
-    font-weight: 700;
-    color: #ffffff;
+    font: 700 14px/1.2 'Work Sans', sans-serif;
+    color: #fff;
     letter-spacing: 1px;
 }
 
@@ -751,8 +798,8 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 
 /* Chat */
 #chat-messages {
-    padding: 100px 20px 120px;
-    max-width: 700px;
+    padding: 100px 10px 120px;
+    max-width: 85vw;
     width: 100%;
     margin: 0 auto;
     overscroll-behavior-y: contain;
@@ -767,28 +814,48 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     width: 100%;
 }
 
+/* User prompts - italic, right aligned */
+.message.user {
+    justify-content: flex-end;
+    margin-bottom: 16px;
+}
+
+.user-prompt {
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 16px;
+    text-align: right;
+    max-width: 70%;
+}
+
+/* Jaylen text - spaced out, no bubble */
+.message.assistant {
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.jaylen-text {
+    flex: 1;
+    color: #fff;
+    font-size: 16px;
+    line-height: 1.8;
+    white-space: pre-line;
+}
+
 @keyframes messageSlide {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-.message.user {
-    flex-direction: row-reverse;
-    justify-content: flex-start;
-}
-
-.message.assistant {
-    flex-direction: row;
-    justify-content: flex-start;
-}
 
 .message-avatar {
     width: 48px;
     height: 48px;
     border-radius: 50%;
+    overflow: visible;
     flex-shrink: 0;
-    overflow: hidden;
     border: 2px solid rgba(0, 51, 104, 0.3);
+    position: relative;
 }
 
 .message-avatar img {
@@ -826,7 +893,7 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 
 .message-text strong {
     font-weight: 700;
-    color: #003368;
+    color: #fff;
 }
 
 .message-text em {
@@ -840,7 +907,7 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     border-radius: 4px;
     font-family: 'Courier New', monospace;
     font-size: 14px;
-    color: #003368;
+    color: #fff;
 }
 
 .message-text pre {
@@ -872,7 +939,7 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
 
 .message-text h1, .message-text h2, .message-text h3 {
     font-weight: 700;
-    color: #003368;
+    color: #fff;
     margin: 12px 0 8px 0;
     text-transform: uppercase;
 }
@@ -917,15 +984,18 @@ h1, h2, h3, h4, h5, h6, .header-title, .button-title, .title {
     background: rgba(0, 51, 104, 0.1);
 }
 
-/* Loading Spinner - Clean and Simple */
+/* Loading Spinner - On Avatar */
 .loading-spinner {
-    width: 24px;
-    height: 24px;
-    border: 3px solid rgba(0, 51, 104, 0.2);
-    border-top-color: #003368;
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
     border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-    margin-left: 16px;
+    animation: spin 0.8s linear infinite;
+    background: rgba(0, 51, 104, 0.8);
 }
 
 @keyframes spin {
@@ -1145,22 +1215,14 @@ input[type="search"] {
     color: rgba(255, 255, 255, 0.5);
 }
 
-/* Scrollbar */
+/* Hide all scrollbars */
 ::-webkit-scrollbar {
-    width: 8px;
+    display: none;
 }
 
-::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.2);
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(0, 51, 104, 0.3);
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 51, 104, 0.5);
+* {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 /* Profile Modal */
@@ -1378,4 +1440,183 @@ input[type="search"] {
 
 .claim-team-btn:hover {
     background: rgba(0, 51, 104, 0.1);
+}
+
+/* UNIFORM TILE SYSTEM */
+.team-row, .player-row {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    min-height: 80px;
+    position: relative;
+    z-index: 100; /* Will be above scroll-container */
+}
+
+.team-row:hover, .player-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.team-row.gold {
+    border-color: #FFD700;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+}
+
+/* Tile Header - Uniform for teams and players */
+.tile-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.rank-badge {
+    background: rgba(0, 51, 104, 0.4);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    min-width: 40px;
+    text-align: center;
+}
+
+.tile-name {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 20px;
+}
+
+.player-position {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
+    text-transform: none;
+}
+
+.tile-score {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    min-width: 80px;
+    text-align: right;
+}
+
+/* Dropdown System - Smooth Animation */
+.tile-dropdown {
+    max-height: 0;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-top: 0;
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+.team-row.expanded .tile-dropdown,
+.player-row.expanded .tile-dropdown {
+    max-height: 400px;
+    margin-top: 20px;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.dropdown-modules {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.dropdown-module {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.module-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.8);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.metric-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.metric-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.rank-indicator {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 400;
+}
+
+/* Dropdown Buttons */
+.dropdown-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.dropdown-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.dropdown-btn.primary {
+    background: rgba(0, 51, 104, 0.6);
+    color: #fff;
+}
+
+.dropdown-btn.primary:hover {
+    background: rgba(0, 51, 104, 0.8);
+    transform: translateY(-1px);
+}
+
+.dropdown-btn.secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dropdown-btn.secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
 }

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#003368">
     <title>NFL CPR - Commissioner's Power Rankings</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=8.0&t=1730076000&polished=true">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -37,7 +37,7 @@
                     
                     <button class="glass-button" onclick="showScreen('niv')">
                         <div class="button-title">NIV</div>
-                        <div class="button-subtitle">PLAYER ANALYTICS</div>
+                        <div class="button-subtitle">LEAGUE ANALYTICS</div>
                     </button>
                     
                     <button class="glass-button" onclick="showScreen('chat')">
@@ -50,8 +50,7 @@
 
         <!-- CPR Screen -->
         <div id="cpr-screen" class="screen">
-
-            <div class="stats-container">
+            <div class="stats-container" style="padding-top: 100px; padding-bottom: 0;">
                 <div class="glass-card">
                     <div class="neon-border"></div>
                     <div class="stat-label">LEAGUE HEALTH</div>
@@ -63,19 +62,15 @@
                     <div class="stat-value" id="gini-coeff">0.000</div>
                 </div>
             </div>
-
-
-            <div id="rankings-container" class="scroll-container"></div>
+            <div id="rankings-container" class="scroll-container" style="padding-top: 20px;"></div>
         </div>
 
         <!-- NIV Screen -->
         <div id="niv-screen" class="screen">
-
-            <div id="niv-stats-container" class="stats-container" style="display: none;">
+            <div id="niv-stats-container" class="stats-container" style="display: none; padding-top: 100px; padding-bottom: 0;">
                 <!-- Stats cards will be added here dynamically when viewing roster -->
             </div>
-
-            <div id="niv-container" class="scroll-container"></div>
+            <div id="niv-container" class="scroll-container" style="padding-top: 20px;"></div>
         </div>
 
         <!-- Chat Screen -->
@@ -171,6 +166,6 @@
         });
     </script>
     
-    <script src="app.js"></script>
+    <script src="app.js?v=8.0&t=1730076000&polished=true"></script>
 </body>
 </html>
