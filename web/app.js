@@ -3,7 +3,7 @@ const API_BASE = ''; // Use relative URLs for same-origin requests
 const MODEL = 'openai/gpt-oss-20b:free'; // Confirmed model
 const LEAGUE_ID = '1267325171853701120'; // Legion Fantasy Football League ID
 
-console.log('CPR-NFL App v12.39 - BIGGER WIDGET + 3-TILE SCROLL!');
+console.log('CPR-NFL App v13.21 - CONVERSATION ISOLATION FIX!');
 console.log('Data pipeline fully corrected. All metrics are live and accurate.');
 
 // State Management
@@ -13,6 +13,21 @@ let selectedTeam = null;
 let cache = {}; // Data cache (cpr_rankings, niv_data, league_stats, dbContext)
 let chatMessages = [];
 let uploadedFile = null;
+let currentUser = null;
+
+// Update currentUser when window.currentUser changes
+Object.defineProperty(window, 'currentUser', {
+    set: function(user) {
+        currentUser = user;
+        this._currentUser = user;
+    },
+    get: function() {
+        return this._currentUser;
+    }
+});
+let claimedTeam = null; // {team_id, team_name}
+let currentConversationId = null;
+let conversations = [];
 
 // --- Utility Functions ---
 
@@ -93,12 +108,16 @@ function updateHeader(screenName) {
     const subtitleEl = document.getElementById('header-subtitle');
     const backButton = document.getElementById('header-back-button');
 
+    header.style.display = 'grid';
+
     if (screenName === 'home') {
-        header.style.display = 'none';
+        titleEl.textContent = '';
+        subtitleEl.innerHTML = '';
+        backButton.style.display = 'none';
         return;
     }
 
-    header.style.display = 'grid';
+    backButton.style.display = 'flex';
 
     let title = '';
     let subtitle = '';
@@ -131,6 +150,10 @@ function updateHeader(screenName) {
         case 'chat':
             title = 'LEAGUE INSIDER';
             subtitle = 'JAYLEN HENDRICKS <span class="twitter-handle">@JHendricksESPN</span>';
+            break;
+        case 'dashboard':
+            title = claimedTeam ? claimedTeam.team_name.toUpperCase() : 'TEAM DASHBOARD';
+            subtitle = 'ROSTER & ANALYTICS';
             break;
     }
 
@@ -169,6 +192,9 @@ function showScreen(screenName) {
             console.log('Loading NIV teams...');
             loadNIVTeams();
         } else if (nivState === 'roster' && selectedTeam) {
+            console.log('selectedTeam keys:', Object.keys(selectedTeam));
+            console.log('selectedTeam.team_name:', selectedTeam.team_name);
+            console.log('selectedTeam stringified:', JSON.stringify(selectedTeam));
             console.log('Loading NIV roster for:', selectedTeam.team_name);
             loadNIVRoster(selectedTeam);
         } else {
@@ -176,8 +202,8 @@ function showScreen(screenName) {
             nivState = 'teams';
             loadNIVTeams();
         }
-    } else if (screenName === 'chat') {
-        loadChatScreen();
+    } else if (screenName === 'dashboard') {
+        loadDashboard();
     }
 }
 
@@ -243,6 +269,7 @@ async function loadCPRScreen() {
                 <div class="tile-header">
                     <div class="rank-badge">${team.rank}</div>
                     <div class="tile-name">${teamName.toUpperCase()}</div>
+                    <button class="claim-team-btn" data-team-id="${team.team_id}" onclick="event.stopPropagation(); claimTeam('${team.team_id}', '${teamName.replace(/'/g, "\\'")}')">CLAIM TEAM</button>
                     <div class="tile-score">${team.cpr.toFixed(3)}</div>
                 </div>
                 <div class="tile-dropdown">
@@ -288,7 +315,7 @@ async function loadCPRScreen() {
                     </div>
                     <div class="dropdown-buttons">
                         <button class="dropdown-btn primary" onclick="getScoutingReport('${team.team_id}', 'team')">GET SCOUTING REPORT</button>
-                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}')">GO TO TEAM ANALYTICS</button>
+                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}', '${teamName.replace(/'/g, "\\'")}')">GO TO TEAM ANALYTICS</button>
                     </div>
                 </div>
             `;
@@ -432,19 +459,57 @@ async function loadNIVRoster(team) {
         </div>
         <div class="glass-card">
             <div class="stat-label">RANK</div>
-            <div class="stat-value">#${team.rank}</div>
+            <div class="stat-value">#${team.rank || 'N/A'}</div>
         </div>
     `;
 
     container.innerHTML = '<div class="loading">Loading roster...</div>';
     
     try {
+        console.log('=== ROSTER LOADING DEBUG ===');
+        console.log('team parameter:', team);
+        console.log('team is null/undefined:', team == null);
+        console.log('typeof team:', typeof team);
+        
+        if (!team) {
+            throw new Error('Team object is null or undefined');
+        }
+        
         console.log('Loading roster for:', team.team_name);
+        console.log('Team object:', team);
         
-        const response = await fetch(`/api/teamRoster?team=${encodeURIComponent(team.team_name)}&league_id=${LEAGUE_ID}&season=2025`);
-        if (!response.ok) throw new Error('Failed to fetch roster');
+        // Temporarily use niv endpoint since teamRoster deployment is failing
+        const nivResponse = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
+        if (!nivResponse.ok) {
+            console.error('NIV API error:', nivResponse.status, nivResponse.statusText);
+            throw new Error(`Failed to fetch NIV data (${nivResponse.status}): ${nivResponse.statusText}`);
+        }
         
-        const data = await response.json();
+        const nivData = await nivResponse.json();
+        const teamNIV = nivData.data?.team_niv || [];
+        
+        console.log('Team properties:', Object.keys(team));
+        console.log('team.team_name:', team.team_name);
+        console.log('team.name:', team.name);
+        console.log('Looking for team:', team.team_name || team.name);
+        console.log('Available teams:', teamNIV.map(t => t.team_name));
+        
+        const teamNameToFind = team.team_name || team.name;
+        const foundTeam = teamNIV.find(t => t.team_name === teamNameToFind);
+        
+        if (!foundTeam) {
+            console.error(`Team '${teamNameToFind}' not found. Available:`, teamNIV.map(t => t.team_name));
+            throw new Error(`TEAMNAME IS NOT DEFINED - team object: ${JSON.stringify(team)}`);
+        }
+        
+        // Use the NIV data as roster data
+        const data = {
+            data: {
+                players: foundTeam.players || [],
+                team: foundTeam
+            }
+        };
+        
         const payload = data.data || data;
         const roster = payload.players || payload.niv_data || payload;
         
@@ -456,13 +521,14 @@ async function loadNIVRoster(team) {
             row.className = 'player-row';
             
             // Get position and team info
+            const playerName = player.player_name || player.name || 'Unknown Player';
             const position = player.position || 'N/A';
             const nflTeam = player.team || 'FA';
             
             row.innerHTML = `
                 <div class="tile-header">
                     <div class="rank-badge">${index + 1}</div>
-                    <div class="tile-name">${player.name.toUpperCase()} <span class="player-position">(${position} - ${nflTeam})</span></div>
+                    <div class="tile-name">${playerName.toUpperCase()} <span class="player-position">(${position} - ${nflTeam})</span></div>
                     <div class="tile-score">${player.niv ? player.niv.toFixed(3) : '0.000'}</div>
                 </div>
                 <div class="tile-dropdown">
@@ -508,7 +574,7 @@ async function loadNIVRoster(team) {
                     </div>
                     <div class="dropdown-buttons">
                         <button class="dropdown-btn primary" onclick="getScoutingReport('${player.player_id}', 'player')">GET SCOUTING REPORT</button>
-                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}')">GO TO TEAM ANALYTICS</button>
+                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}', '${team.team_name.replace(/'/g, "\\'")}')">GO TO TEAM ANALYTICS</button>
                     </div>
                 </div>
             `;
@@ -528,7 +594,12 @@ async function loadNIVRoster(team) {
         
     } catch (error) {
         console.error('Error loading roster:', error);
-        container.innerHTML = '<div class="error">Failed to load roster. Please try again.</div>';
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            teamName: team?.team_name
+        });
+        container.innerHTML = `<div class="error">Failed to load roster: ${error.message}</div>`;
     }
 }
 
@@ -565,6 +636,27 @@ async function sendMessage() {
     
     if (!message) return;
     
+    // Create new conversation if none exists
+    if (!currentConversationId && currentUser) {
+        const conversationNumber = conversations.length + 1;
+        const title = `Conversation ${conversationNumber}`;
+        const conversationId = await createConversation(title);
+        if (conversationId) {
+            currentConversationId = conversationId;
+            
+            // Add to conversations list
+            conversations.unshift({
+                id: conversationId,
+                title: title,
+                tokenCount: 0,
+                lastMessage: null,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            });
+            updateConversationList();
+        }
+    }
+    
     // Prepare message content
     let messageContent = message;
     
@@ -582,9 +674,29 @@ async function sendMessage() {
     }
     
     // Add user message
-    chatMessages.push({ role: 'user', content: messageContent });
+    const userMessage = { 
+        role: 'user', 
+        content: messageContent,
+        timestamp: new Date().toISOString(),
+        tokens: Math.ceil(messageContent.length / 4) // Rough token estimate
+    };
+    chatMessages.push(userMessage);
     console.log(' Added user message:', messageContent);
     input.value = '';
+    
+    // Save user message to Firestore if conversation exists
+    if (currentConversationId && currentUser) {
+        saveMessageToConversation(currentConversationId, userMessage);
+        
+        // Update local conversation
+        const conv = conversations.find(c => c.id === currentConversationId);
+        if (conv) {
+            conv.tokenCount += userMessage.tokens;
+            conv.lastMessage = userMessage;
+            conv.updatedAt = new Date();
+            updateConversationList();
+        }
+    }
     
     // Clear uploaded file after processing
     uploadedFile = null;
@@ -667,10 +779,27 @@ async function sendMessage() {
                             // Finalize the message
                             const messageIndex = chatMessages.findIndex(m => m.id === streamingId);
                             if (messageIndex !== -1) {
-                                chatMessages[messageIndex] = { 
+                                const finalMessage = { 
                                     role: 'assistant', 
-                                    content: assistantText.trim()
+                                    content: assistantText.trim(),
+                                    timestamp: new Date().toISOString(),
+                                    tokens: Math.ceil(assistantText.length / 4) // Rough token estimate
                                 };
+                                chatMessages[messageIndex] = finalMessage;
+                                
+                                // Save to Firestore if conversation exists
+                                if (currentConversationId && currentUser) {
+                                    saveMessageToConversation(currentConversationId, finalMessage);
+                                    
+                                    // Update local conversation
+                                    const conv = conversations.find(c => c.id === currentConversationId);
+                                    if (conv) {
+                                        conv.tokenCount += finalMessage.tokens;
+                                        conv.lastMessage = finalMessage;
+                                        conv.updatedAt = new Date();
+                                        updateConversationList();
+                                    }
+                                }
                                 
                                 // Remove typing cursor and finalize
                                 const streamingElement = container.querySelector(`[data-id="${streamingId}"] .jaylen-text`);
@@ -759,7 +888,10 @@ function renderChatMessages() {
     const container = document.getElementById('chat-messages');
     const isScrolledToBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
     
-    console.log('Rendering chat messages:', chatMessages);
+    console.log('=== RENDERING CHAT MESSAGES ===');
+    console.log('chatMessages array:', chatMessages);
+    console.log('chatMessages.length:', chatMessages.length);
+    console.log('currentConversationId:', currentConversationId);
     
     // Handle welcome message fade on first user input - remove immediately to prevent jump
     const welcomeContainer = container.querySelector('.welcome-message-container');
@@ -799,12 +931,8 @@ function renderChatMessages() {
                 }
             }).join('');
         
-        // Find streaming messages already in DOM and preserve them
-        const streamingMessages = container.querySelectorAll('.streaming-message');
-        const streamingHTML = Array.from(streamingMessages).map(el => el.outerHTML).join('');
-        
-        // Replace container with all messages
-        container.innerHTML = messagesHTML + streamingHTML;
+        // Replace container with conversation messages (streaming messages handled separately)
+        container.innerHTML = messagesHTML;
     }
 
     // Scroll to bottom if user was near the bottom OR if a new user message was just sent
@@ -875,6 +1003,420 @@ async function handleFileUpload(event) {
 }
 
 
+// --- Team Dashboard Logic ---
+
+async function loadDashboard() {
+    const container = document.getElementById('dashboard-content');
+    
+    if (!claimedTeam) {
+        container.innerHTML = '<div class="error">Please claim a team first</div>';
+        return;
+    }
+    
+    container.innerHTML = '<div class="loading">Loading team dashboard...</div>';
+    
+    try {
+        // Fetch team roster data
+        const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
+        if (!response.ok) throw new Error('Failed to fetch team data');
+        
+        const data = await response.json();
+        const payload = data.data || data;
+        const teams = payload.teams || payload;
+        
+        // Find claimed team data
+        const teamData = teams.find(t => t.team_id === claimedTeam.team_id);
+        
+        if (!teamData) {
+            container.innerHTML = '<div class="error">Team data not found</div>';
+            return;
+        }
+        
+        // Build dashboard layout
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <!-- Team Roster (left, spans 2 rows) -->
+                <div style="grid-row: span 2;">
+                    <div class="glass-card" style="padding: 24px;">
+                        <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">TEAM ROSTER</h3>
+                        <div id="dashboard-roster"></div>
+                    </div>
+                </div>
+                
+                <!-- Team Stats (top right) -->
+                <div>
+                    <div class="glass-card" style="padding: 24px;">
+                        <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">TEAM STATS</h3>
+                        <div id="dashboard-stats"></div>
+                    </div>
+                </div>
+                
+                <!-- League Leaders (bottom right) -->
+                <div>
+                    <div class="glass-card" style="padding: 24px;">
+                        <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">LEAGUE LEADERS</h3>
+                        <div id="dashboard-leaders"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Player Analyzer (full width bottom) -->
+            <div class="glass-card" style="padding: 24px;">
+                <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">PLAYER ANALYZER</h3>
+                <div id="dashboard-analyzer">
+                    <p style="font-family: 'Work Sans', sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); text-align: center; padding: 40px;">Player comparison and analysis tools coming soon</p>
+                </div>
+            </div>
+        `;
+        
+        // Populate roster
+        const rosterContainer = document.getElementById('dashboard-roster');
+        if (teamData.roster && teamData.roster.length > 0) {
+            rosterContainer.innerHTML = teamData.roster.map(player => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 8px;">
+                    <div>
+                        <div style="font-family: 'Work Sans', sans-serif; font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase;">${player.name || 'Unknown Player'}</div>
+                        <div style="font-family: 'Work Sans', sans-serif; font-size: 11px; color: rgba(255,255,255,0.5);">${player.position || 'N/A'}</div>
+                    </div>
+                    <div style="font-family: 'Work Sans', sans-serif; font-size: 14px; font-weight: 700; color: #fff;">${(player.niv || 0).toFixed(2)}</div>
+                </div>
+            `).join('');
+        } else {
+            rosterContainer.innerHTML = '<p style="font-family: Work Sans, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); text-align: center;">No roster data available</p>';
+        }
+        
+        // Populate stats
+        const statsContainer = document.getElementById('dashboard-stats');
+        statsContainer.innerHTML = `
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; justify-content: space-between; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <span style="font-family: 'Work Sans', sans-serif; font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 1px; text-transform: uppercase;">TEAM NIV</span>
+                    <span style="font-family: 'Work Sans', sans-serif; font-size: 13px; font-weight: 700; color: #fff;">${(teamData.team_niv || 0).toFixed(2)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <span style="font-family: 'Work Sans', sans-serif; font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 1px; text-transform: uppercase;">ROSTER SIZE</span>
+                    <span style="font-family: 'Work Sans', sans-serif; font-size: 13px; font-weight: 700; color: #fff;">${teamData.roster?.length || 0}</span>
+                </div>
+            </div>
+        `;
+        
+        // Populate league leaders (placeholder)
+        const leadersContainer = document.getElementById('dashboard-leaders');
+        leadersContainer.innerHTML = '<p style="font-family: Work Sans, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); text-align: center;">League leaders data coming soon</p>';
+        
+    } catch (error) {
+        console.error('Error loading dashboard:', error);
+        container.innerHTML = '<div class="error">Failed to load team dashboard</div>';
+    }
+}
+
+// --- Conversation Management ---
+
+async function createConversation(title = 'New Conversation') {
+    console.log('=== CREATE CONVERSATION DEBUG ===');
+    console.log('title:', title);
+    console.log('currentUser:', currentUser);
+    console.log('window.firestore:', window.firestore);
+    console.log('window.firebaseDb:', window.firebaseDb);
+    
+    if (!currentUser) {
+        console.error('No current user for conversation creation');
+        return null;
+    }
+    
+    try {
+        console.log('Attempting to create Firestore document...');
+        const docRef = await window.firestore.addDoc(window.firestore.collection(window.firebaseDb, 'conversations'), {
+            userId: currentUser.uid,
+            title: title,
+            messages: [],
+            tokenCount: 0,
+            createdAt: window.firestore.serverTimestamp(),
+            updatedAt: window.firestore.serverTimestamp()
+        });
+        
+        console.log('Conversation created successfully:', docRef.id);
+        return docRef.id;
+    } catch (error) {
+        console.error('Error creating conversation:', error);
+        console.error('Error details:', error.message, error.stack);
+        return null;
+    }
+}
+
+async function loadConversations() {
+    if (!currentUser) return;
+    
+    try {
+        console.log('Loading conversations for user:', currentUser.uid);
+        
+        // Wait a tick for the DOM to be ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const q = window.firestore.query(
+            window.firestore.collection(window.firebaseDb, 'conversations'),
+            window.firestore.where('userId', '==', currentUser.uid),
+            window.firestore.orderBy('updatedAt', 'desc')
+        );
+        
+        const querySnapshot = await window.firestore.getDocs(q);
+        conversations = [];
+        
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            console.log('Found conversation:', doc.id, data.title);
+            conversations.push({
+                id: doc.id,
+                title: data.title || 'Untitled Conversation',
+                tokenCount: data.tokenCount || 0,
+                lastMessage: data.messages && data.messages.length > 0 ? data.messages[data.messages.length - 1] : null,
+                createdAt: data.createdAt?.toDate() || new Date(),
+                updatedAt: data.updatedAt?.toDate() || new Date()
+            });
+        });
+        
+        console.log('Loaded conversations:', conversations.length);
+        updateConversationList();
+    } catch (error) {
+        console.error('Error loading conversations:', error);
+        conversations = [];
+        updateConversationList();
+    }
+}
+
+async function saveMessageToConversation(conversationId, message) {
+    if (!currentUser) return;
+    
+    try {
+        console.log('Saving message to conversation:', conversationId);
+        const docRef = window.firestore.doc(window.firebaseDb, 'conversations', conversationId);
+        const docSnap = await window.firestore.getDoc(docRef);
+        
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            const messages = data.messages || [];
+            messages.push(message);
+            
+            await window.firestore.updateDoc(docRef, {
+                messages: messages,
+                tokenCount: (data.tokenCount || 0) + (message.tokens || 0),
+                updatedAt: window.firestore.serverTimestamp()
+            });
+            console.log('Message saved successfully');
+        } else {
+            console.error('Conversation not found:', conversationId);
+        }
+    } catch (error) {
+        console.error('Error saving message:', error);
+    }
+}
+
+async function updateConversationTitle(conversationId, newTitle) {
+    if (!currentUser) return;
+    
+    try {
+        const docRef = window.firestore.doc(window.firebaseDb, 'conversations', conversationId);
+        await window.firestore.updateDoc(docRef, {
+            title: newTitle,
+            updatedAt: window.firestore.serverTimestamp()
+        });
+        
+        // Update local conversations
+        const conv = conversations.find(c => c.id === conversationId);
+        if (conv) conv.title = newTitle;
+        
+        updateConversationList();
+    } catch (error) {
+        console.error('Error updating title:', error);
+    }
+}
+
+async function deleteConversation(conversationId) {
+    if (!currentUser) return;
+    
+    if (!confirm('Are you sure you want to delete this conversation?')) return;
+    
+    try {
+        await window.firestore.deleteDoc(window.firestore.doc(window.firebaseDb, 'conversations', conversationId));
+        
+        // Remove from local conversations
+        conversations = conversations.filter(c => c.id !== conversationId);
+        
+        // If this was the current conversation, clear it
+        if (currentConversationId === conversationId) {
+            currentConversationId = null;
+            chatMessages = [];
+            loadChatScreen();
+        }
+        
+        updateConversationList();
+    } catch (error) {
+        console.error('Error deleting conversation:', error);
+    }
+}
+
+function updateConversationList() {
+    const container = document.getElementById('conversation-list');
+    console.log('Updating conversation list, container exists:', !!container);
+    if (!container) {
+        console.error('Conversation list container not found!');
+        return;
+    }
+    
+    if (conversations.length === 0) {
+        container.innerHTML = `
+            <div style="min-height: 112px; padding: 20px; text-align: center; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;">
+                <div style="font-family: 'Work Sans', -apple-system, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;">NO SAVED CONVERSATIONS</div>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = conversations.map((conv, index) => {
+        const isSelected = conv.id === currentConversationId;
+        const lastMessageTime = conv.lastMessage ? 
+            new Date(conv.lastMessage.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 
+            conv.updatedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        
+        return `
+            <div class="conversation-tile ${isSelected ? 'selected' : ''}" 
+                 data-conversation-id="${conv.id}"
+                 data-index="${index}"
+                 style="cursor: pointer; pointer-events: auto; position: relative; z-index: 10;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                    <div style="flex: 1;">
+                        <div class="conversation-title">${conv.title}</div>
+                        <div class="conversation-meta">${conv.tokenCount} tokens • ${lastMessageTime}</div>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="event.stopPropagation(); renameConversation('${conv.id}', '${conv.title.replace(/'/g, "\\'")}')" style="background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px;">
+                            <i class="fa-solid fa-edit" style="font-size: 12px;"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); deleteConversation('${conv.id}')" style="background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px;">
+                            <i class="fa-solid fa-trash" style="font-size: 12px;"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    // Add click event listeners after HTML is created
+    const tiles = container.querySelectorAll('.conversation-tile');
+    tiles.forEach(tile => {
+        tile.addEventListener('click', function(e) {
+            const conversationId = this.getAttribute('data-conversation-id');
+            console.log('Conversation tile clicked via event listener:', conversationId);
+            loadConversation(conversationId);
+        });
+    });
+}
+
+async function loadConversation(conversationId) {
+    if (!currentUser) return;
+    
+    try {
+        console.log('=== LOADING CONVERSATION ===');
+        console.log('conversationId:', conversationId);
+        
+        const docRef = window.firestore.doc(window.firebaseDb, 'conversations', conversationId);
+        const docSnap = await window.firestore.getDoc(docRef);
+        
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            console.log('Conversation data:', data);
+            console.log('Messages count:', data.messages?.length || 0);
+            
+            currentConversationId = conversationId;
+            chatMessages = data.messages || [];
+            
+            // Clear chat container completely before loading new conversation
+            const chatContainer = document.getElementById('chat-messages');
+            if (chatContainer) {
+                chatContainer.innerHTML = '';
+            }
+            
+            // Load the conversation in chat screen
+            console.log('Switching to chat screen...');
+            showScreen('chat');
+            renderChatMessages();
+            updateConversationList();
+            console.log('Conversation loaded successfully');
+        } else {
+            console.error('Conversation not found:', conversationId);
+        }
+    } catch (error) {
+        console.error('Error loading conversation:', error);
+    }
+}
+
+async function startNewConversation() {
+    try {
+        console.log('=== START NEW CONVERSATION DEBUG ===');
+        console.log('currentUser:', currentUser);
+        console.log('conversations.length:', conversations.length);
+    
+    if (!currentUser) {
+        console.error('User not signed in - cannot create conversation');
+        alert('Please sign in to start a conversation');
+        return;
+    }
+    
+    // Auto-number conversation
+    const conversationNumber = conversations.length + 1;
+    const title = `Conversation ${conversationNumber}`;
+    
+    console.log('Creating new conversation:', title);
+    const conversationId = await createConversation(title);
+    console.log('Received conversationId:', conversationId);
+    
+    if (conversationId) {
+        console.log('Setting up new conversation...');
+        currentConversationId = conversationId;
+        chatMessages = []; // Clear messages for fresh context
+        
+        // Add to conversations list
+        const newConversation = {
+            id: conversationId,
+            title: title,
+            tokenCount: 0,
+            lastMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+        conversations.unshift(newConversation);
+        console.log('Added conversation to list:', newConversation);
+        
+        updateConversationList();
+        
+        // Navigate to chat screen with fresh context
+        console.log('Navigating to chat screen with fresh context...');
+        showScreen('chat');
+        renderChatMessages(); // This should show empty chat
+        
+        // Clear the chat container to ensure fresh start
+        const chatContainer = document.getElementById('chat-messages');
+        if (chatContainer) {
+            chatContainer.innerHTML = '';
+        }
+        
+        console.log('New conversation setup complete - fresh context ready');
+    } else {
+        console.error('Failed to create conversation - no ID returned');
+    }
+    } catch (error) {
+        console.error('Error in startNewConversation:', error);
+        alert('Failed to create conversation: ' + error.message);
+    }
+}
+
+function renameConversation(conversationId, currentTitle) {
+    const newTitle = prompt('Enter new title:', currentTitle);
+    if (newTitle && newTitle !== currentTitle) {
+        updateConversationTitle(conversationId, newTitle);
+    }
+}
+
 // --- Auth & Profile Logic ---
 
 function showProfile() {
@@ -882,43 +1424,125 @@ function showProfile() {
     modal.classList.add('active');
 }
 
+function openProfile() {
+    showProfile();
+}
+
 function closeProfile() {
     const modal = document.getElementById('profile-modal');
     modal.classList.remove('active');
+}
+
+// Navigation functions
+function goToTeamDashboard() {
+    if (!claimedTeam) {
+        alert('Please claim a team first');
+        return;
+    }
+    closeProfile();
+    showScreen('dashboard');
+}
+
+async function goToTeamAnalytics(teamId, teamName) {
+    console.log('Navigate to team analytics for:', teamId, teamName);
+    
+    try {
+        // Fetch full team data from NIV API
+        const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
+        if (!response.ok) throw new Error('Failed to fetch team data');
+        
+        const data = await response.json();
+        const payload = data.data || data;
+        const teams = payload.team_niv || payload.team_rankings || payload;
+        
+        // Find the team with matching name (more reliable than ID)
+        console.log('Looking for team:', teamName);
+        console.log('Available teams:', teams.map(t => ({id: t.team_id, name: t.team_name})));
+        
+        const teamData = teams.find(t => t.team_name === teamName);
+        
+        if (teamData) {
+            console.log('Found team data:', teamData);
+            
+            // Calculate rank based on position in sorted NIV list
+            const sortedTeams = teams.sort((a, b) => b.avg_niv - a.avg_niv);
+            const teamRank = sortedTeams.findIndex(t => t.team_name === teamName) + 1;
+            
+            // Set up complete team object for NIV screen
+            selectedTeam = {
+                ...teamData,
+                team_name: teamName,
+                rank: teamRank
+            };
+            
+            nivState = 'roster';
+            showScreen('niv');
+        } else {
+            console.error('Team not found in NIV data:', teamId);
+            alert('Team data not found');
+        }
+    } catch (error) {
+        console.error('Error loading team analytics:', error);
+        alert('Failed to load team analytics');
+    }
+}
+
+function getScoutingReport(id, type) {
+    console.log(`Getting scouting report for ${type}:`, id);
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+        if (type === 'team') {
+            chatInput.value = `Give me a detailed scouting report for team ID ${id}`;
+        } else {
+            chatInput.value = `Give me a detailed scouting report for player ID ${id}`;
+        }
+        showScreen('chat');
+    }
 }
 
 function renderAuthUI(user) {
     const authContainer = document.getElementById('auth-container');
 
     if (user) {
-        // Logged-in view - matching auth screen styling
+        // Logged-in view - matching auth screen styling exactly
         const displayName = user.displayName || user.email.split('@')[0].toUpperCase();
         const avatarUrl = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=003368&color=fff&size=96`;
         
+        // Check localStorage for claimed team
+        const savedTeam = localStorage.getItem('claimedTeam');
+        if (savedTeam) {
+            claimedTeam = JSON.parse(savedTeam);
+        }
+        const teamDashboardDisabled = !claimedTeam;
+        
         authContainer.innerHTML = `
             <div class="logged-in-view">
-                <!-- Header: centered avatar + name/email -->
-                <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 32px;">
-                    <img src="${avatarUrl}" alt="Avatar" onclick="document.getElementById('avatar-upload').click()" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; cursor: pointer; margin-bottom: 16px;"/>
-                    <input type="file" id="avatar-upload" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)"/>
-                    <div style="font-family: 'Work Sans', -apple-system, sans-serif; font-size: 18px; font-weight: 800; color: #fff; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 4px;">${displayName}</div>
-                    <div style="font-family: 'Work Sans', -apple-system, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); letter-spacing: 0.5px;">${user.email}</div>
+                <!-- Header matching logged-out view -->
+                <div class="auth-header" style="margin-bottom: 32px;">
+                    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
+                        <img src="${avatarUrl}" alt="Avatar" onclick="document.getElementById('avatar-upload').click()" style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; cursor: pointer;"/>
+                        <input type="file" id="avatar-upload" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)"/>
+                        <div style="flex: 1;">
+                            <h2 class="auth-title" style="margin: 0; font-size: 24px;">${displayName}</h2>
+                            <p class="auth-subtitle" style="margin: 4px 0 0 0; font-size: 11px;">${user.email}</p>
+                        </div>
+                    </div>
                 </div>
                 
-                <!-- Conversation History - Clean 3-tile scrollable area -->
+                <!-- Conversation History -->
                 <div style="margin-bottom: 24px;">
-                    <label class="auth-title" style="display: block; font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.6); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px;">CONVERSATION HISTORY</label>
-                    <div id="conversation-list" style="height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scroll-snap-type: y mandatory; padding: 2px;">
-                        <div style="min-height: 112px; padding: 20px; background: rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; text-align: center; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;">
+                    <button onclick="startNewConversation()" class="social-auth-button" style="width: 100%; margin-bottom: 12px; padding: 12px;">NEW CONVERSATION</button>
+                    <div id="conversation-list" style="height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scroll-snap-type: y mandatory; padding: 8px; background: rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; pointer-events: auto;">
+                        <div style="min-height: 112px; padding: 20px; text-align: center; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;">
                             <div style="font-family: 'Work Sans', -apple-system, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;">NO SAVED CONVERSATIONS</div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Action Buttons -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                    <button onclick="logout()" class="social-auth-button" style="padding: 16px; background: rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.15); border-radius: 12px; color: #fff; font-family: 'Work Sans', -apple-system, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; cursor: pointer;">SIGN OUT</button>
-                    <button disabled class="social-auth-button" style="padding: 16px; background: rgba(0,0,0,0.1); border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; color: rgba(255,255,255,0.3); font-family: 'Work Sans', -apple-system, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; cursor: not-allowed;">TEAM DASHBOARD</button>
+                <!-- Action Buttons matching logged-out view -->
+                <div class="auth-form-buttons">
+                    <button onclick="logout()" class="social-auth-button">SIGN OUT</button>
+                    <button ${teamDashboardDisabled ? 'disabled' : ''} onclick="${teamDashboardDisabled ? '' : 'goToTeamDashboard()'}" class="social-auth-button" style="${teamDashboardDisabled ? 'opacity: 0.3; cursor: not-allowed;' : ''}">TEAM DASHBOARD</button>
                 </div>
             </div>
         `;
@@ -950,7 +1574,7 @@ function renderAuthUI(user) {
 
 async function loginGoogle() {
     try {
-        console.log('🔐 Starting Google sign-in...');
+        console.log('Starting Google sign-in...');
         console.log('Auth object:', window.firebaseAuth);
         console.log('Google provider:', window.firebase.googleProvider);
         console.log('Current domain:', window.location.hostname);
@@ -958,10 +1582,10 @@ async function loginGoogle() {
         
         // Try popup first
         const result = await window.firebase.signInWithPopup(window.firebaseAuth, window.firebase.googleProvider);
-        console.log('✅ Google sign-in successful:', result);
+        console.log('Google sign-in successful:', result);
         closeProfile();
     } catch (error) {
-        console.error('❌ Google sign-in error:', error);
+        console.error('Google sign-in error:', error);
         console.error('Error code:', error.code);
         console.error('Error message:', error.message);
         console.error('Full error:', JSON.stringify(error, null, 2));
@@ -972,7 +1596,7 @@ async function loginGoogle() {
         } else if (error.code === 'auth/popup-closed-by-user') {
             console.log('User closed popup');
         } else if (error.code === 'auth/unauthorized-domain') {
-            console.log('⚠️ Unauthorized domain error - trying redirect method instead...');
+            console.log('Unauthorized domain error - trying redirect method instead...');
             try {
                 // Try redirect as fallback (sometimes has different domain validation)
                 await window.firebase.signInWithRedirect(window.firebaseAuth, window.firebase.googleProvider);
@@ -1064,6 +1688,49 @@ function handleAvatarUpload(event) {
     alert('Avatar upload feature coming soon! File selected: ' + file.name);
 }
 
+// Team claiming functions
+function claimTeam(teamId, teamName) {
+    if (!window.currentUser) {
+        alert('Please sign in to claim a team');
+        openProfile();
+        return;
+    }
+    
+    claimedTeam = { team_id: teamId, team_name: teamName };
+    localStorage.setItem('claimedTeam', JSON.stringify(claimedTeam));
+    updateClaimButtons();
+}
+
+function updateClaimButtons() {
+    const buttons = document.querySelectorAll('.claim-team-btn');
+    const savedTeam = localStorage.getItem('claimedTeam');
+    if (savedTeam) {
+        claimedTeam = JSON.parse(savedTeam);
+    }
+    
+    buttons.forEach(btn => {
+        const teamId = btn.getAttribute('data-team-id');
+        
+        if (!window.currentUser) {
+            btn.disabled = true;
+            btn.style.display = 'none';
+        } else if (claimedTeam && teamId === claimedTeam.team_id) {
+            btn.style.display = 'none';
+        } else {
+            btn.disabled = false;
+            btn.style.display = 'block';
+            btn.textContent = 'CLAIM TEAM';
+            btn.classList.remove('claimed');
+        }
+    });
+    
+    // Update team dashboard button
+    const dashboardBtns = document.querySelectorAll('[onclick*="goToTeamDashboard"]');
+    dashboardBtns.forEach(btn => {
+        btn.disabled = !claimedTeam;
+    });
+}
+
 // --- Initialization ---
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1103,19 +1770,4 @@ document.addEventListener('DOMContentLoaded', () => {
     renderAuthUI(null);
 });
 
-// Navigation Functions
-function getScoutingReport(id, type) {
-    console.log(`Getting scouting report for ${type}: ${id}`);
-    // TODO: Implement scouting report functionality
-}
-
-function goToTeamAnalytics(teamId) {
-    console.log(`Navigating to team analytics for: ${teamId}`);
-    // Find the team in NIV data and load roster
-    if (cache.niv_data && cache.niv_data.team_niv) {
-        const team = cache.niv_data.team_niv.find(t => t.team_id === teamId);
-        if (team) {
-            loadNIVRoster(team);
-        }
-    }
-}
+// --- Initialization Complete ---

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#003368">
     <title>NFL CPR - Commissioner's Power Rankings</title>
-    <link rel="stylesheet" href="styles.css?v=12.39&t=1730177000&bigger=widget">
+    <link rel="stylesheet" href="styles.css?v=13.21&t=1730211000&isolation=fix">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -17,12 +17,14 @@
                 <h2 class="header-title" id="header-title"></h2>
                 <div class="header-subtitle" id="header-subtitle"></div>
             </div>
-            <button class="profile-button" id="header-profile-button" onclick="showProfile()"><i class="fa-regular fa-circle"></i></button>
+            <div style="display: flex; gap: 12px;">
+                <button class="profile-button" id="header-home-button" onclick="showScreen('home')"><i class="fa-solid fa-home"></i></button>
+                <button class="profile-button" id="header-profile-button" onclick="showProfile()"><i class="fa-regular fa-circle"></i></button>
+            </div>
         </div>
 
         <!-- Screens -->
         <div id="home-screen" class="screen active">
-            <button class="profile-button home-profile-button" id="home-profile-button" onclick="showProfile()"><i class="fa-regular fa-circle"></i></button>
             <div class="home-container">
                 <div class="fba-logo">
                     <img src="/assets/lff.png" alt="CPR Logo">
@@ -79,6 +81,13 @@
             <div id="chat-messages" class="scroll-container"></div>
         </div>
 
+        <!-- Team Dashboard Screen -->
+        <div id="dashboard-screen" class="screen">
+            <div class="scroll-container" style="padding: 20px;">
+                <div id="dashboard-content"></div>
+            </div>
+        </div>
+
         <!-- Chat Input -->
         <div class="chat-input-container">
             <div class="glass-input-wrapper">
@@ -115,6 +124,20 @@
             signInWithEmailAndPassword,
             createUserWithEmailAndPassword
         } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+        import { 
+            getFirestore,
+            collection,
+            addDoc,
+            getDocs,
+            getDoc,
+            doc,
+            updateDoc,
+            deleteDoc,
+            query,
+            where,
+            orderBy,
+            serverTimestamp
+        } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
         // Firebase config - CORRECT API KEY FOR CPR-NFL PROJECT
         const firebaseConfig = {
@@ -130,6 +153,7 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
         
         // Add custom parameters to Google provider with NEW OAuth client ID
@@ -138,8 +162,9 @@
             client_id: '585991449153-gnbm60ir963m7uo05l0dvqvupdulfdrq.apps.googleusercontent.com'
         });
 
-        // Make auth available globally
+        // Make auth and firestore available globally
         window.firebaseAuth = auth;
+        window.firebaseDb = db;
         window.firebase = {
             signInWithPopup,
             signInWithRedirect,
@@ -149,6 +174,19 @@
             googleProvider,
             signInWithEmailAndPassword,
             createUserWithEmailAndPassword
+        };
+        window.firestore = {
+            collection,
+            addDoc,
+            getDocs,
+            getDoc,
+            doc,
+            updateDoc,
+            deleteDoc,
+            query,
+            where,
+            orderBy,
+            serverTimestamp
         };
 
         console.log('Firebase initialized!');
@@ -179,27 +217,43 @@
 
         // Listen for auth state changes and update the UI
         onAuthStateChanged(auth, (user) => {
+            window.currentUser = user;
             renderAuthUI(user);
+            updateClaimButtons();
 
             const profileButtons = document.querySelectorAll('.profile-button');
             if (user) {
-                // Update profile button with user's avatar or initial
+                // Update only profile buttons (not home button) with user's avatar or initial
                 profileButtons.forEach(btn => {
-                    if (user.photoURL) {
-                        btn.innerHTML = `<img src="${user.photoURL}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">`;
-                    } else {
+                    if (btn.id && btn.id.includes('profile')) {
+                        if (user.photoURL) {
+                            btn.innerHTML = `<img src="${user.photoURL}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">`;
+                        } else {
+                            btn.innerHTML = '<i class="fa-regular fa-circle"></i>';
+                        }
+                    }
+                });
+                
+                // Load conversations for signed-in user
+                if (typeof loadConversations === 'function') {
+                    loadConversations();
+                }
+            } else {
+                // Reset only profile buttons (not home button)
+                profileButtons.forEach(btn => {
+                    if (btn.id && btn.id.includes('profile')) {
                         btn.innerHTML = '<i class="fa-regular fa-circle"></i>';
                     }
                 });
-            } else {
-                // Reset profile button
-                profileButtons.forEach(btn => {
-                    btn.innerHTML = '<i class="fa-regular fa-circle"></i>';
-                });
+                
+                // Clear conversations when signed out
+                conversations = [];
+                currentConversationId = null;
+                chatMessages = [];
             }
         });
     </script>
     
-    <script src="app.js?v=12.39&t=1730177000&bigger=widget"></script>
+    <script src="app.js?v=13.21&t=1730211000&isolation=fix"></script>
 </body>
 </html>

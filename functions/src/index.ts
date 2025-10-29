@@ -376,7 +376,6 @@ export const teamRoster = functions.https.onRequest(async (request: Request, res
   return corsHandler(request, response, async () => {
     try {
       const teamName = request.query.team as string;
-      const leagueId = request.query.league_id as string || DEFAULT_LEAGUE_ID;
       const season = parseInt(request.query.season as string) || CURRENT_SEASON;
       
       if (!teamName) {
@@ -384,44 +383,45 @@ export const teamRoster = functions.https.onRequest(async (request: Request, res
         return;
       }
       
-      console.log(`Loading roster for team: ${teamName}`);
+      console.log(`Loading roster for team: ${teamName} from Firestore`);
       
       const db = admin.firestore();
       
-      // Get team info
-      const teamSnapshot = await db.collection('teams')
-        .where('league_id', '==', leagueId)
-        .where('team_name', '==', teamName)
-        .limit(1)
-        .get();
+      // Get the NIV data that's already working in the niv endpoint
+      const nivLatestDoc = await db.collection('niv_rankings').doc('latest').get();
       
-      if (teamSnapshot.empty) {
-        response.status(404).json(handleError(new Error('Team not found'), 'teamRoster'));
+      if (!nivLatestDoc.exists) {
+        response.status(404).json(handleError(new Error('No NIV data found'), 'teamRoster'));
         return;
       }
       
-      const teamData = teamSnapshot.docs[0].data();
+      const nivData = nivLatestDoc.data();
+      const teamNIV = nivData?.team_niv || [];
       
-      // Get NIV data for team players from latest document
-      const nivLatestDoc = await db.collection('niv_rankings').doc('latest').get();
+      console.log(`Looking for team: '${teamName}' in ${teamNIV.length} teams`);
+      console.log(`Available teams: ${teamNIV.map((t: any) => t.team_name).join(', ')}`);
       
-      let teamNIVData: any[] = [];
-      if (nivLatestDoc.exists) {
-        const nivData = nivLatestDoc.data();
-        const allNIVData = nivData?.player_rankings || [];
-        teamNIVData = allNIVData.filter((player: any) => 
-          teamData.roster && teamData.roster.includes(player.player_id)
-        );
-        console.log(`Found ${teamNIVData.length} players for team ${teamName}`);
-      } else {
-        console.log('No NIV data found in latest document');
+      // Find the team by name
+      const foundTeam = teamNIV.find((team: any) => team.team_name === teamName);
+      
+      if (!foundTeam) {
+        console.log(`Team '${teamName}' not found. Available teams:`, teamNIV.map((t: any) => t.team_name));
+        response.status(404).json(handleError(new Error(`Team '${teamName}' not found`), 'teamRoster'));
+        return;
       }
       
+      console.log(`Found team: ${foundTeam.team_name} with ${foundTeam.players?.length || 0} players`);
+      
       const result = {
-        players: teamNIVData, // app.js expects 'players' array
-        team: teamData,
+        players: foundTeam.players || [], // Already has full player data with NIV
+        team: {
+          team_name: foundTeam.team_name,
+          team_id: foundTeam.team_id,
+          avg_niv: foundTeam.avg_niv,
+          player_count: foundTeam.player_count
+        },
         season: season,
-        calculated_at: new Date().toISOString()
+        calculated_at: nivData?.calculation_timestamp || new Date().toISOString()
       };
       
       response.status(200).json(createResponse(result));
@@ -482,6 +482,7 @@ the rules of your reality:
 - be ruthless but fair. roast bad moves but explain the logic. praise genius pickups. it's the big brother way.
 - no bias. ever. you call it like the numbers show it, even if it's a tough truth.
 - short paragraphs. two or three sentences, then a line break. keep it readable.
+- NO EMOJIS. ever. don't use them. not even ironically. use words instead.
 
 your playbook for every response:
 your analysis must always be grounded in the data. start with the vibe, then hit 'em with the numbers. explain the 'why' using our metrics.

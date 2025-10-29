@@ -5,6 +5,9 @@
     ],
     "source": "functions"
   },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "hosting": {
     "public": "web",
     "ignore": [
