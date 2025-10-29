@@ -23,8 +23,6 @@ from mcp.types import (
     CallToolRequest, CallToolResult, GetResourceRequest, GetResourceResult
 )
 
-from api import SleeperAPI
-from team_extraction import LegionTeamExtractor
 from utils import make_sleeper_request
 
 # Configure logging
@@ -33,8 +31,6 @@ logger = logging.getLogger(__name__)
 
 # Initialize APIs with Legion league
 LEGION_LEAGUE_ID = "1267325171853701120"
-sleeper_api = SleeperAPI(LEGION_LEAGUE_ID)
-team_extractor = LegionTeamExtractor(LEGION_LEAGUE_ID)
 
 # Create MCP server
 server = Server("sleeper-server")
@@ -757,9 +753,9 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResu
 
 async def main():
     """Main entry point for STREAMLINED Sleeper MCP server"""
-    logger.info("🏈 Starting STREAMLINED Sleeper MCP Server...")
-    logger.info(f"📋 Legion League ID: {LEGION_LEAGUE_ID}")
-    logger.info("✅ Using VERIFIED Sleeper API endpoints")
+    logger.info("NFL Starting STREAMLINED Sleeper MCP Server...")
+    logger.info(f"LIST Legion League ID: {LEGION_LEAGUE_ID}")
+    logger.info("PASS Using VERIFIED Sleeper API endpoints")
     
     # Run the server using stdio
     async with stdio_server() as (read_stream, write_stream):

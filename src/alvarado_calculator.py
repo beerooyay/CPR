@@ -68,11 +68,11 @@ class AlvaradoCalculator:
                 'adp_mapping': adp_mapping
             }
             
-            logger.info(f"✅ Draft data loaded: {len(picks)} picks")
+            logger.info(f"Draft data loaded: {len(picks)} picks")
             return self.draft_data
             
         except Exception as e:
-            logger.error(f"❌ Failed to fetch draft data: {e}")
+            logger.error(f"Failed to fetch draft data: {e}")
             return {}
     
     def _get_player_adp_cost(self, player_id: str) -> float:
@@ -152,7 +152,7 @@ class AlvaradoCalculator:
                 logger.warning(f"Failed to fetch week {week} matchups: {e}")
                 continue
         
-        logger.info(f"✅ Loaded matchup data for {len(weekly_data)} weeks")
+        logger.info(f"Loaded matchup data for {len(weekly_data)} weeks")
         return weekly_data
     
     def calculate_player_alvarado(self, player_id: str, team: Team, 
@@ -239,10 +239,10 @@ class AlvaradoCalculator:
                 team_alvarado = self.calculate_team_alvarado(team, weekly_matchups)
                 alvarado_scores[team.team_id] = team_alvarado
                 
-                logger.info(f"✅ {team.team_name}: Alvarado Index = {team_alvarado:.3f}")
+                logger.info(f"{team.team_name}: Alvarado Index = {team_alvarado:.3f}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to calculate Alvarado for {team.team_name}: {e}")
+                logger.error(f"Failed to calculate Alvarado for {team.team_name}: {e}")
                 alvarado_scores[team.team_id] = 0.0
         
         return alvarado_scores

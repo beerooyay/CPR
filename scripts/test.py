@@ -16,8 +16,9 @@ from api import SleeperAPI
 from database import Database
 from cpr import CPREngine
 from niv import NIVCalculator
-from jaylen import JaylenAI
 from models import LeagueInfo, Team, Player, PlayerStats, CPRMetrics, NIVMetrics
+import requests
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -35,12 +36,12 @@ class SystemTester:
         self.database = Database()
         self.cpr_engine = CPREngine({})
         self.niv_calculator = NIVCalculator()
-        self.jaylen = JaylenAI()
+        self.firebase_url = "https://us-central1-cpr-nfl.cloudfunctions.net"
         self.test_results = {}
         
     async def test_api_connection(self) -> bool:
         """Test Sleeper API connection"""
-        logger.info("🌐 Testing Sleeper API connection...")
+        logger.info(" Testing Sleeper API connection...")
         
         try:
             # Test league info
@@ -56,18 +57,18 @@ class SystemTester:
             players = self.api.get_players([])  # Empty list gets all players
             assert len(players) > 0
             
-            logger.info("✅ API connection test passed")
+            logger.info("PASS API connection test passed")
             self.test_results["api_connection"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ API connection test failed: {e}")
+            logger.error(f"FAIL API connection test failed: {e}")
             self.test_results["api_connection"] = False
             return False
     
     async def test_database_connection(self) -> bool:
         """Test database connection"""
-        logger.info("💾 Testing database connection...")
+        logger.info("SAVE Testing database connection...")
         
         try:
             # Test database initialization
@@ -77,21 +78,21 @@ class SystemTester:
             if hasattr(self.database, 'db') and self.database.db:
                 # Try a simple read operation
                 leagues = self.database.db.collection('leagues').limit(1).get()
-                logger.info("✅ Database connection test passed")
+                logger.info("PASS Database connection test passed")
             else:
-                logger.info("⚠️ Database not available, skipping connection test")
+                logger.info("WARN Database not available, skipping connection test")
             
             self.test_results["database_connection"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ Database connection test failed: {e}")
+            logger.error(f"FAIL Database connection test failed: {e}")
             self.test_results["database_connection"] = False
             return False
     
     async def test_cpr_calculations(self) -> bool:
         """Test CPR calculation engine"""
-        logger.info("🏆 Testing CPR calculations...")
+        logger.info(" Testing CPR calculations...")
         
         try:
             # Create test team
@@ -143,18 +144,18 @@ class SystemTester:
             assert cpr_metrics.cpr >= 0
             assert cpr_metrics.team_id == test_team.team_id
             
-            logger.info("✅ CPR calculations test passed")
+            logger.info("PASS CPR calculations test passed")
             self.test_results["cpr_calculations"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ CPR calculations test failed: {e}")
+            logger.error(f"FAIL CPR calculations test failed: {e}")
             self.test_results["cpr_calculations"] = False
             return False
     
     async def test_niv_calculations(self) -> bool:
         """Test NIV calculation engine"""
-        logger.info("🎯 Testing NIV calculations...")
+        logger.info("TARGET Testing NIV calculations...")
         
         try:
             # Create test player
@@ -188,18 +189,18 @@ class SystemTester:
             assert niv_metrics.niv >= 0
             assert niv_metrics.player_id == test_player.player_id
             
-            logger.info("✅ NIV calculations test passed")
+            logger.info("PASS NIV calculations test passed")
             self.test_results["niv_calculations"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ NIV calculations test failed: {e}")
+            logger.error(f"FAIL NIV calculations test failed: {e}")
             self.test_results["niv_calculations"] = False
             return False
     
     async def test_jaylen_agent(self) -> bool:
         """Test Jaylen AI agent"""
-        logger.info("🤖 Testing Jaylen AI agent...")
+        logger.info(" Testing Jaylen AI agent...")
         
         try:
             # Test agent initialization
@@ -215,18 +216,18 @@ class SystemTester:
             formatted = self.jaylen._format_messages(test_messages)
             assert len(formatted) > 0
             
-            logger.info("✅ Jaylen agent test passed")
+            logger.info("PASS Jaylen agent test passed")
             self.test_results["jaylen_agent"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ Jaylen agent test failed: {e}")
+            logger.error(f"FAIL Jaylen agent test failed: {e}")
             self.test_results["jaylen_agent"] = False
             return False
     
     async def test_mcp_servers(self) -> bool:
         """Test MCP server functionality"""
-        logger.info("🔌 Testing MCP servers...")
+        logger.info(" Testing MCP servers...")
         
         try:
             # Test MCP client
@@ -241,18 +242,18 @@ class SystemTester:
                 assert "sleeper_server" in config
                 assert "firebase_server" in config
             
-            logger.info("✅ MCP servers test passed")
+            logger.info("PASS MCP servers test passed")
             self.test_results["mcp_servers"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ MCP servers test failed: {e}")
+            logger.error(f"FAIL MCP servers test failed: {e}")
             self.test_results["mcp_servers"] = False
             return False
     
     async def test_web_frontend(self) -> bool:
         """Test web frontend files"""
-        logger.info("🌐 Testing web frontend...")
+        logger.info(" Testing web frontend...")
         
         try:
             web_path = Path(__file__).parent.parent / "web"
@@ -271,18 +272,18 @@ class SystemTester:
             jaylen_path = assets_path / "jaylen.png"
             assert jaylen_path.exists(), "Missing jaylen.png"
             
-            logger.info("✅ Web frontend test passed")
+            logger.info("PASS Web frontend test passed")
             self.test_results["web_frontend"] = True
             return True
             
         except Exception as e:
-            logger.error(f"❌ Web frontend test failed: {e}")
+            logger.error(f"FAIL Web frontend test failed: {e}")
             self.test_results["web_frontend"] = False
             return False
     
     async def run_all_tests(self) -> dict:
         """Run all system tests"""
-        logger.info("🚀 Starting comprehensive system tests...")
+        logger.info("START Starting comprehensive system tests...")
         
         start_time = datetime.now()
         
@@ -322,10 +323,10 @@ class SystemTester:
     def print_test_report(self, summary: dict):
         """Print detailed test report"""
         print("\n" + "="*60)
-        print("🧪 CPR-NFL SYSTEM TEST REPORT")
+        print(" CPR-NFL SYSTEM TEST REPORT")
         print("="*60)
         
-        print(f"📊 SUMMARY:")
+        print(f"DATA SUMMARY:")
         print(f"   Total Tests: {summary['total_tests']}")
         print(f"   Passed: {summary['passed_tests']}")
         print(f"   Failed: {summary['failed_tests']}")
@@ -333,18 +334,18 @@ class SystemTester:
         print(f"   Duration: {summary.get('duration_seconds', 0):.2f}s")
         print(f"   Timestamp: {summary['timestamp']}")
         
-        print(f"\n📋 DETAILED RESULTS:")
+        print(f"\nLIST DETAILED RESULTS:")
         for test_name, result in summary['test_results'].items():
-            status = "✅ PASS" if result else "❌ FAIL"
+            status = "PASS PASS" if result else "FAIL FAIL"
             print(f"   {test_name.replace('_', ' ').title()}: {status}")
         
-        print(f"\n🎯 OVERALL STATUS:")
+        print(f"\nTARGET OVERALL STATUS:")
         if summary['success_rate'] >= 80:
             print("   🟢 SYSTEM HEALTHY")
         elif summary['success_rate'] >= 60:
             print("   🟡 SYSTEM NEEDS ATTENTION")
         else:
-            print("   🔴 SYSTEM HAS ISSUES")
+            print("    SYSTEM HAS ISSUES")
         
         print("="*60)
 
@@ -400,7 +401,7 @@ async def main():
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(summary, f, indent=2)
-        logger.info(f"💾 Test results saved to {args.output}")
+        logger.info(f"SAVE Test results saved to {args.output}")
     
     # Exit with appropriate code
     exit_code = 0 if summary['success_rate'] >= 80 else 1

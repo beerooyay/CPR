@@ -5,7 +5,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import statistics
 
-from models import Player, Team, NIVMetrics, Position
+from .models import Player, Team, NIVMetrics, Position
 
 logger = logging.getLogger(__name__)
 
@@ -122,9 +122,9 @@ class NIVEngine:
             # For now, use a simple approximation based on total points and games
             if games_played > 0:
                 avg_points = fantasy_points / games_played
-                # Estimate consistency based on position and performance
-                consistency = min(avg_points / 20.0, 1.0)  # Normalize to 0-1
+                consistency = min(avg_points / 20.0, 1.0)
             else:
+                avg_points = 0.0
                 consistency = 0.0
             
             # Count explosive games (games with >1.5x average)
@@ -171,23 +171,20 @@ class NIVEngine:
         if not position_players:
             return 50.0  # Default value
         
-        # Get fantasy points for position comparison
         current_stats = player.stats.get(self.current_season) if player.stats else None
-        player_points = current_stats.fantasy_points if current_stats else 0.0
-        
-        # Get all points for this position
+        player_points = current_stats.fantasy_points if current_stats and current_stats.fantasy_points else 0.0
+
         position_points = []
         for p in position_players:
             p_stats = p.stats.get(self.current_season) if p.stats else None
-            points = p_stats.fantasy_points if p_stats else 0.0
+            points = p_stats.fantasy_points if p_stats and p_stats.fantasy_points else 0.0
             position_points.append(points)
-        
+
         if not position_points or max(position_points) == 0:
             return 50.0
-        
-        # Calculate percentile within position
-        position_points.sort()
-        percentile = (position_points.index(player_points) / len(position_points)) * 100
+
+        # Use numpy for safe percentile calculation
+        percentile = (np.sum(np.array(position_points) < player_points) / len(position_points)) * 100
         
         # Apply position scarcity multipliers
         position_multipliers = {
@@ -207,10 +204,8 @@ class NIVEngine:
         """Calculate market NIV based on overall fantasy production"""
         if fantasy_points <= 0:
             return 0.0
-        
-        # Normalize fantasy points to 0-100 scale
-        # Top tier players typically score 250+ points per season
-        market_niv = min((fantasy_points / 250.0) * 100, 100.0)
+        # Normalize fantasy points to 0-100 scale, 300 is a good top-end score
+        market_niv = min((fantasy_points / 300.0) * 100, 100.0)
         
         return market_niv
     
@@ -218,7 +213,6 @@ class NIVEngine:
         """Calculate explosive NIV based on big game potential"""
         if total_games == 0:
             return 0.0
-        
         explosive_rate = explosive_games / total_games
         return min(explosive_rate * 100, 100.0)
     

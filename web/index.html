@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#003368">
     <title>NFL CPR - Commissioner's Power Rankings</title>
-    <link rel="stylesheet" href="styles.css?v=8.0&t=1730076000&polished=true">
+    <link rel="stylesheet" href="styles.css?v=12.39&t=1730177000&bigger=widget">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -102,21 +102,23 @@
     
     <!-- Firebase SDKs -->
     <script type="module">
-        // Import Firebase
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+        // Import Firebase - using v10.12.0 for stability
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
         import { 
             getAuth, 
-            signInWithPopup, 
+            signInWithPopup,
+            signInWithRedirect,
+            getRedirectResult,
             GoogleAuthProvider, 
             signOut, 
             onAuthStateChanged,
             signInWithEmailAndPassword,
             createUserWithEmailAndPassword
-        } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
+        } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
-        // Firebase config
+        // Firebase config - CORRECT API KEY FOR CPR-NFL PROJECT
         const firebaseConfig = {
-            apiKey: "AIzaSyBFKbtnje97D15OMa2URhDGIwt2Zf0XMTo",
+            apiKey: "AIzaSyA9BJhwiE08ilCbDIel2pUTxFcZtGucPBU",
             authDomain: "cpr-nfl.firebaseapp.com",
             projectId: "cpr-nfl",
             storageBucket: "cpr-nfl.firebasestorage.app",
@@ -129,11 +131,19 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const googleProvider = new GoogleAuthProvider();
+        
+        // Add custom parameters to Google provider with NEW OAuth client ID
+        googleProvider.setCustomParameters({
+            prompt: 'select_account',
+            client_id: '585991449153-gnbm60ir963m7uo05l0dvqvupdulfdrq.apps.googleusercontent.com'
+        });
 
         // Make auth available globally
         window.firebaseAuth = auth;
         window.firebase = {
             signInWithPopup,
+            signInWithRedirect,
+            getRedirectResult,
             signOut,
             onAuthStateChanged,
             googleProvider,
@@ -141,7 +151,31 @@
             createUserWithEmailAndPassword
         };
 
-        console.log('🔥 Firebase initialized!');
+        console.log('Firebase initialized!');
+        
+        // Debug: Verify API key points to correct project
+        fetch(`https://identitytoolkit.googleapis.com/v1/projects?key=${firebaseConfig.apiKey}`)
+            .then(r => r.json())
+            .then(data => {
+                console.log('🔍 Firebase Project Verification:');
+                console.log('   Project ID:', data.projectId);
+                console.log('   Authorized Domains:', data.authorizedDomains);
+                if (!data.authorizedDomains.includes('cpr-nfl.web.app')) {
+                    console.error('⚠️ WARNING: cpr-nfl.web.app NOT in authorized domains!');
+                } else {
+                    console.log('✅ Domain cpr-nfl.web.app is authorized!');
+                }
+            })
+            .catch(err => console.error('Failed to verify project:', err));
+
+        // Check for redirect result on page load
+        getRedirectResult(auth).then((result) => {
+            if (result) {
+                console.log('✅ Sign-in via redirect successful:', result);
+            }
+        }).catch((error) => {
+            console.error('❌ Redirect result error:', error);
+        });
 
         // Listen for auth state changes and update the UI
         onAuthStateChanged(auth, (user) => {
@@ -166,6 +200,6 @@
         });
     </script>
     
-    <script src="app.js?v=8.0&t=1730076000&polished=true"></script>
+    <script src="app.js?v=12.39&t=1730177000&bigger=widget"></script>
 </body>
 </html>

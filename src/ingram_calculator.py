@@ -119,10 +119,10 @@ class IngramCalculator:
                 ingram_score = self.calculate_team_ingram(team, players)
                 ingram_scores[team.team_id] = ingram_score
                 
-                logger.info(f"✅ {team.team_name}: Ingram Index = {ingram_score:.3f}")
+                logger.info(f"{team.team_name}: Ingram Index = {ingram_score:.3f}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to calculate Ingram for {team.team_name}: {e}")
+                logger.error(f"Failed to calculate Ingram for {team.team_name}: {e}")
                 ingram_scores[team.team_id] = 0.0
         
         return ingram_scores

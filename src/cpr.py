@@ -5,6 +5,7 @@ Uses actual Ingram, Alvarado, and Zion algorithms for CPR framework
 """
 
 import math
+import numpy as np
 import statistics
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -18,7 +19,7 @@ try:
     from .zion_calculator import ZionTensorCalculator
     from .team_extraction import LegionTeamExtractor
 except ImportError:
-    from models import Team, Player, CPRMetrics, LeagueAnalysis
+    from .models import Team, Player, CPRMetrics, LeagueAnalysis
     from utils import calculate_gini_coefficient, make_sleeper_request
     from ingram_calculator import IngramCalculator
     from alvarado_calculator import AlvaradoCalculator
@@ -120,21 +121,32 @@ class CPREngine:
         bsi = min((avg_bench_points * self.bench_multiplier) / 10.0, 2.0)
         return max(bsi, 0.0)
     
-    def calculate_smi(self, team: Team) -> float:
+    def calculate_smi(self, team: Team, all_teams: List[Team]) -> float:
         """Calculate Schedule Momentum Index (SMI) - recent performance trends"""
-        # Use points differential and win percentage for momentum
-        points_diff = team.fpts - team.fpts_against
+        # Get weekly scores for the team
+        weekly_scores = []
+        for week in range(1, 9):  # Assuming 8 weeks of data
+            try:
+                matchups = make_sleeper_request(f"league/{self.league_id}/matchups/{week}")
+                for m in matchups:
+                    if m['roster_id'] == int(team.team_id):
+                        weekly_scores.append(m['points'])
+                        break
+            except Exception:
+                continue
         
-        # Normalize points differential (-100 to +100 range)
-        normalized_diff = max(min(points_diff / 100.0, 1.0), -1.0)
+        if len(weekly_scores) < 2:
+            return 0.5 # Neutral score if not enough data
+
+        # Trend analysis (slope of linear regression)
+        x = np.arange(len(weekly_scores))
+        y = np.array(weekly_scores)
+        slope, _ = np.polyfit(x, y, 1)
         
-        # Win percentage component
-        win_component = team.win_percentage
-        
-        # Combine for momentum (0-2 scale)
-        smi = (normalized_diff + 1.0) * win_component
-        
-        return max(min(smi, 2.0), 0.0)
+        # Normalize slope to 0-2 scale
+        # Assuming a slope of 10 (avg 10 pts increase/week) is max momentum
+        smi = 1.0 + (slope / 10.0)
+        return max(0.0, min(2.0, smi))
     
     def calculate_team_cpr(self, team: Team, players: Dict[str, Player], 
                           all_teams: List[Team]) -> CPRMetrics:
@@ -142,10 +154,13 @@ class CPREngine:
         
         logger.debug(f"Calculating CPR for {team.team_name}...")
         
+        # Calculate total points from matchups
+        team.fpts = self._get_total_points(team, all_teams)
+
         # Calculate traditional indices
         sli = self.calculate_sli(team, players)
         bsi = self.calculate_bsi(team, players)
-        smi = self.calculate_smi(team)
+        smi = self.calculate_smi(team, all_teams)
         
         # Calculate REAL algorithm indices
         try:
@@ -206,7 +221,7 @@ class CPREngine:
     
     def calculate_league_cpr(self, teams: List[Team], players: Dict[str, Player]) -> Dict[str, Any]:
         """Calculate CPR for entire league using REAL algorithms"""
-        logger.info("🚀 Calculating REAL CPR rankings for league...")
+        logger.info("START Calculating REAL CPR rankings for league...")
         
         # Calculate CPR for each team
         cpr_metrics = []
@@ -214,10 +229,10 @@ class CPREngine:
             try:
                 team_cpr = self.calculate_team_cpr(team, players, teams)
                 cpr_metrics.append(team_cpr)
-                logger.info(f"✅ {team_cpr.team_name}: CPR = {team_cpr.cpr:.3f}")
+                logger.info(f"{team_cpr.team_name}: CPR = {team_cpr.cpr:.3f}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to calculate CPR for {team.team_name}: {e}")
+                logger.error(f"Failed to calculate CPR for {team.team_name}: {e}")
                 continue
         
         # Sort by CPR score (descending)
@@ -250,7 +265,7 @@ class CPREngine:
             'algorithm_version': 'REAL_CPR_v1.0'
         }
         
-        logger.info(f"✅ REAL CPR calculation complete: {len(cpr_metrics)} teams, health: {league_health:.1%}")
+        logger.info(f"REAL CPR calculation complete: {len(cpr_metrics)} teams, health: {league_health:.1%}")
         return result
     
     def _generate_real_insights(self, cpr_metrics: List[CPRMetrics], 
@@ -263,20 +278,20 @@ class CPREngine:
         
         # Top team analysis
         top_team = cpr_metrics[0]
-        insights.append(f"👑 {top_team.team_name} leads with CPR {top_team.cpr:.3f}")
+        insights.append(f" {top_team.team_name} leads with CPR {top_team.cpr:.3f}")
         
         # Component analysis
         top_sli = max(cpr_metrics, key=lambda x: x.sli)
         top_ingram = max(cpr_metrics, key=lambda x: x.ingram)
         top_alvarado = max(cpr_metrics, key=lambda x: x.alvarado)
         
-        insights.append(f"💪 Strongest lineup: {top_sli.team_name} (SLI: {top_sli.sli:.3f})")
-        insights.append(f"⚖️ Most balanced roster: {top_ingram.team_name} (Ingram: {top_ingram.ingram:.3f})")
-        insights.append(f"💎 Best draft value: {top_alvarado.team_name} (Alvarado: {top_alvarado.alvarado:.3f})")
+        insights.append(f" Strongest lineup: {top_sli.team_name} (SLI: {top_sli.sli:.3f})")
+        insights.append(f"️ Most balanced roster: {top_ingram.team_name} (Ingram: {top_ingram.ingram:.3f})")
+        insights.append(f" Best draft value: {top_alvarado.team_name} (Alvarado: {top_alvarado.alvarado:.3f})")
         
         # Schedule analysis
         hardest_schedule = min(cpr_metrics, key=lambda x: x.zion)  # Lower Zion = harder schedule
-        insights.append(f"😤 Toughest schedule: {hardest_schedule.team_name} (Zion: {hardest_schedule.zion:.3f})")
+        insights.append(f" Toughest schedule: {hardest_schedule.team_name} (Zion: {hardest_schedule.zion:.3f})")
         
         # Performance vs expectation
         overperformers = []
@@ -296,12 +311,26 @@ class CPREngine:
                 underperformers.append(team_cpr.team_name)
         
         if overperformers:
-            insights.append(f"📈 Overperforming record: {', '.join(overperformers[:2])}")
+            insights.append(f" Overperforming record: {', '.join(overperformers[:2])}")
         if underperformers:
-            insights.append(f"📉 Underperforming record: {', '.join(underperformers[:2])}")
+            insights.append(f" Underperforming record: {', '.join(underperformers[:2])}")
         
         return insights
     
+    def _get_total_points(self, team: Team, all_teams: List[Team]) -> float:
+        """Get total points for a team from weekly matchups"""
+        total_points = 0.0
+        for week in range(1, 9): # Assuming 8 weeks
+            try:
+                matchups = make_sleeper_request(f"league/{self.league_id}/matchups/{week}")
+                for m in matchups:
+                    if m['roster_id'] == int(team.team_id):
+                        total_points += m['points']
+                        break
+            except Exception:
+                continue
+        return total_points
+
     def _serialize_cpr_metrics(self, metrics: CPRMetrics) -> Dict[str, Any]:
         """Convert CPRMetrics to dictionary for JSON serialization"""
         return {
@@ -320,22 +349,22 @@ class CPREngine:
             'cpr_tier': metrics.cpr_tier
         }
     
-    def get_algorithm_explanation(self) -> str:
-        """Get explanation of REAL CPR algorithms"""
-        return """
-🏈 REAL CPR ALGORITHM BREAKDOWN:
+def get_algorithm_explanation(self) -> str:
+    """Get explanation of REAL CPR algorithms"""
+    return """
+REAL CPR ALGORITHM BREAKDOWN:
 
-📊 TRADITIONAL COMPONENTS (65%):
+TRADITIONAL COMPONENTS (65%):
 • SLI (30%): Strength of Lineup Index - Average starter fantasy points
 • BSI (20%): Bench Strength Index - Bench depth and quality  
 • SMI (15%): Schedule Momentum Index - Recent performance trends
 
-🧠 REVOLUTIONARY COMPONENTS (35%):
+REVOLUTIONARY COMPONENTS (35%):
 • Ingram Index (15%): HHI-based positional balance (70% starters, 30% bench)
 • Alvarado Index (10%): Shapley Value / ADP efficiency (draft value)
 • Zion Tensor (10%): 4D Strength of Schedule (Traditional, Volatility, Positional, Efficiency)
 
-🔬 ALGORITHM SOURCES:
+ALGO ALGORITHM SOURCES:
 • Ingram: Herfindahl-Hirschman Index adapted for fantasy roster construction
 • Alvarado: Game theory Shapley values combined with draft position cost
 • Zion: World's first 4D tensor approach to strength of schedule

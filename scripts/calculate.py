@@ -53,12 +53,12 @@ class RealCalculationEngine:
         # Initialize Legion team extractor
         self.team_extractor = LegionTeamExtractor(league_id)
         
-        logger.info("🧠 REAL Calculation Engine initialized with revolutionary algorithms")
+        logger.info("AI REAL Calculation Engine initialized with revolutionary algorithms")
         
     async def calculate_cpr_rankings(self, week: int = None) -> list[CPRMetrics]:
         """Calculate REAL CPR rankings for all teams"""
-        logger.info("🏆 Calculating REAL CPR rankings...")
-        logger.info("🔬 Using: Ingram (HHI), Alvarado (Shapley/ADP), Zion (4D Tensor)")
+        logger.info(" Calculating REAL CPR rankings...")
+        logger.info("ALGO Using: Ingram (HHI), Alvarado (Shapley/ADP), Zion (4D Tensor)")
         
         try:
             # Get league data
@@ -88,7 +88,7 @@ class RealCalculationEngine:
                     p.stats[league_info.season] = stats_obj
             
             # Calculate REAL CPR for each team
-            logger.info("🧠 Running REAL CPR calculations...")
+            logger.info("AI Running REAL CPR calculations...")
             cpr_results = self.cpr_engine.calculate_league_cpr(teams, players)
             
             # Convert to CPRMetrics objects
@@ -110,18 +110,18 @@ class RealCalculationEngine:
                 )
                 cpr_rankings.append(metrics)
             
-            logger.info(f"✅ REAL CPR rankings calculated for {len(cpr_rankings)} teams")
+            logger.info(f"PASS REAL CPR rankings calculated for {len(cpr_rankings)} teams")
             logger.info(f"   League health: {cpr_results['league_health']:.1%}")
             
             return cpr_rankings
             
         except Exception as e:
-            logger.error(f"❌ Error calculating REAL CPR rankings: {e}")
+            logger.error(f"FAIL Error calculating REAL CPR rankings: {e}")
             raise
     
     async def calculate_all_metrics(self, week: int = None) -> dict:
         """Calculate REAL CPR metrics"""
-        logger.info("🚀 Starting REAL CPR calculation...")
+        logger.info("START Starting REAL CPR calculation...")
         
         # Calculate REAL CPR rankings
         cpr_rankings = await self.calculate_cpr_rankings(week)
@@ -138,12 +138,12 @@ class RealCalculationEngine:
             }
         }
         
-        logger.info("✅ REAL CPR calculations completed!")
+        logger.info("PASS REAL CPR calculations completed!")
         return results
     
     async def save_to_database(self, results: dict):
         """Save REAL calculation results to database"""
-        logger.info("💾 Saving REAL CPR calculations to database...")
+        logger.info("SAVE Saving REAL CPR calculations to database...")
         
         try:
             # Save CPR rankings (latest)
@@ -172,10 +172,10 @@ class RealCalculationEngine:
                     rankings_data
                 )
             
-            logger.info("✅ REAL CPR calculations saved to database!")
+            logger.info("PASS REAL CPR calculations saved to database!")
             
         except Exception as e:
-            logger.error(f"❌ Error saving REAL calculations: {e}")
+            logger.error(f"FAIL Error saving REAL calculations: {e}")
             raise
 
 async def main():
@@ -237,24 +237,24 @@ async def main():
         
         with open(args.output, 'w') as f:
             json.dump(json_results, f, indent=2, default=str)
-        logger.info(f"💾 Results saved to {args.output}")
+        logger.info(f"SAVE Results saved to {args.output}")
     
     # Print summary
     print("\n" + "="*50)
-    print("📊 REAL CPR CALCULATION SUMMARY")
+    print("DATA REAL CPR CALCULATION SUMMARY")
     print("="*50)
     print(f"Week: {results['week']}")
     print(f"Calculated At: {results['calculated_at']}")
     print(f"Algorithm: {results['algorithm_version']}")
     print(f"Teams: {len(results['cpr_rankings'])}")
     
-    print("\n🏆 TOP 5 REAL CPR RANKINGS")
+    print("\n TOP 5 REAL CPR RANKINGS")
     print("-" * 50)
     for i, team in enumerate(results['cpr_rankings'][:5], 1):
         print(f"{i}. {team.team_name}: {team.cpr:.3f} ({team.wins}-{team.losses})")
         print(f"   Ingram: {team.ingram:.3f} | Alvarado: {team.alvarado:.3f} | Zion: {team.zion:.3f}")
     
-    print("\n🧠 REVOLUTIONARY ALGORITHMS USED:")
+    print("\nAI REVOLUTIONARY ALGORITHMS USED:")
     for algo, desc in results['algorithms_used'].items():
         print(f"• {algo.title()}: {desc}")
 

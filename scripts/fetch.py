@@ -31,19 +31,19 @@ class DataFetcher:
         
     async def fetch_all_data(self, week: int = None) -> dict:
         """Fetch all data for the league"""
-        logger.info(f"🏈 Starting data fetch for league {self.league_id}")
+        logger.info(f"NFL Starting data fetch for league {self.league_id}")
         
         try:
             # Get league info
-            logger.info("📋 Fetching league info...")
+            logger.info("LIST Fetching league info...")
             league_info = self.api.get_league_info()
             
             # Get teams/rosters
-            logger.info("👥 Fetching teams and rosters...")
+            logger.info(" Fetching teams and rosters...")
             teams = self.api.get_rosters()
             
             # Get players for all rostered IDs (deduped)
-            logger.info("🏃 Fetching player data...")
+            logger.info(" Fetching player data...")
             all_player_ids = []
             for team in teams:
                 try:
@@ -54,17 +54,17 @@ class DataFetcher:
             players = self.api.get_players(all_player_ids)
             
             # Get player stats
-            logger.info("📊 Fetching player stats...")
+            logger.info("DATA Fetching player stats...")
             player_stats = self.api.get_player_stats(league_info.season)
             
             # Get matchups
-            logger.info("⚔️ Fetching matchups...")
+            logger.info("️ Fetching matchups...")
             if week is None:
                 week = league_info.current_week
             matchups = self.api.get_matchups(week)
             
             # Get transactions
-            logger.info("💰 Fetching transactions...")
+            logger.info(" Fetching transactions...")
             transactions = self.api.get_transactions(week)
             
             data = {
@@ -77,16 +77,16 @@ class DataFetcher:
                 "fetched_at": datetime.now().isoformat()
             }
             
-            logger.info("✅ Data fetch completed successfully!")
+            logger.info("PASS Data fetch completed successfully!")
             return data
             
         except Exception as e:
-            logger.error(f"❌ Error during data fetch: {e}")
+            logger.error(f"FAIL Error during data fetch: {e}")
             raise
     
     async def save_to_database(self, data: dict):
         """Save fetched data to database (league, teams, players)"""
-        logger.info("💾 Saving data to database...")
+        logger.info("SAVE Saving data to database...")
         
         try:
             league_info = data.get("league_info")
@@ -109,10 +109,10 @@ class DataFetcher:
             if not ok:
                 raise RuntimeError("save_league_data returned False")
 
-            logger.info("✅ Data saved to database successfully!")
+            logger.info("PASS Data saved to database successfully!")
             
         except Exception as e:
-            logger.error(f"❌ Error saving to database: {e}")
+            logger.error(f"FAIL Error saving to database: {e}")
             raise
     
     async def fetch_and_save(self, week: int = None):
@@ -150,10 +150,10 @@ async def main():
         import json
         with open(args.output, 'w') as f:
             json.dump(data, f, indent=2, default=str)
-        logger.info(f"💾 Data saved to {args.output}")
+        logger.info(f"SAVE Data saved to {args.output}")
     
     # Print summary
-    print("\n📊 FETCH SUMMARY")
+    print("\nDATA FETCH SUMMARY")
     print("=" * 40)
     print(f"League: {data['league_info'].name}")
     print(f"Season: {data['league_info'].season}")

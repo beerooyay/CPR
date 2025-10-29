@@ -14,7 +14,7 @@ except ImportError:
     FIREBASE_AVAILABLE = False
     logging.warning("Firebase Admin SDK not available")
 
-from models import CPRMetrics, NIVMetrics, Team, Player, LeagueAnalysis
+from .models import CPRMetrics, NIVMetrics, Team, Player, LeagueAnalysis
 
 logger = logging.getLogger(__name__)
 

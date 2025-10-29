@@ -49,7 +49,7 @@ class DeploymentManager:
     
     def check_prerequisites(self) -> bool:
         """Check deployment prerequisites"""
-        self.log_deployment("🔍 Checking deployment prerequisites...")
+        self.log_deployment(" Checking deployment prerequisites...")
         
         prerequisites = {
             "python": False,
@@ -63,50 +63,50 @@ class DeploymentManager:
             result = subprocess.run(["python3", "--version"], capture_output=True, text=True)
             if result.returncode == 0:
                 prerequisites["python"] = True
-                self.log_deployment(f"✅ Python: {result.stdout.strip()}")
+                self.log_deployment(f"PASS Python: {result.stdout.strip()}")
         except Exception as e:
-            self.log_deployment("❌ Python not found", "ERROR")
+            self.log_deployment("FAIL Python not found", "ERROR")
         
         # Check Node.js
         try:
             result = subprocess.run(["node", "--version"], capture_output=True, text=True)
             if result.returncode == 0:
                 prerequisites["node"] = True
-                self.log_deployment(f"✅ Node.js: {result.stdout.strip()}")
+                self.log_deployment(f"PASS Node.js: {result.stdout.strip()}")
         except Exception as e:
-            self.log_deployment("❌ Node.js not found", "ERROR")
+            self.log_deployment("FAIL Node.js not found", "ERROR")
         
         # Check Firebase CLI
         try:
             result = subprocess.run(["firebase", "--version"], capture_output=True, text=True)
             if result.returncode == 0:
                 prerequisites["firebase"] = True
-                self.log_deployment(f"✅ Firebase CLI: {result.stdout.strip()}")
+                self.log_deployment(f"PASS Firebase CLI: {result.stdout.strip()}")
         except Exception as e:
-            self.log_deployment("❌ Firebase CLI not found", "WARNING")
+            self.log_deployment("FAIL Firebase CLI not found", "WARNING")
         
         # Check Docker
         try:
             result = subprocess.run(["docker", "--version"], capture_output=True, text=True)
             if result.returncode == 0:
                 prerequisites["docker"] = True
-                self.log_deployment(f"✅ Docker: {result.stdout.strip()}")
+                self.log_deployment(f"PASS Docker: {result.stdout.strip()}")
         except Exception as e:
-            self.log_deployment("❌ Docker not found", "WARNING")
+            self.log_deployment("FAIL Docker not found", "WARNING")
         
         # Check if critical prerequisites are met
         critical_passed = prerequisites["python"] and prerequisites["node"]
         
         if critical_passed:
-            self.log_deployment("✅ Critical prerequisites met")
+            self.log_deployment("PASS Critical prerequisites met")
             return True
         else:
-            self.log_deployment("❌ Critical prerequisites missing", "ERROR")
+            self.log_deployment("FAIL Critical prerequisites missing", "ERROR")
             return False
     
     def install_dependencies(self) -> bool:
         """Install project dependencies"""
-        self.log_deployment("📦 Installing dependencies...")
+        self.log_deployment(" Installing dependencies...")
         
         try:
             # Install Python dependencies
@@ -118,12 +118,12 @@ class DeploymentManager:
                 ], capture_output=True, text=True)
                 
                 if result.returncode == 0:
-                    self.log_deployment("✅ Python dependencies installed")
+                    self.log_deployment("PASS Python dependencies installed")
                 else:
-                    self.log_deployment(f"❌ Python dependencies failed: {result.stderr}", "ERROR")
+                    self.log_deployment(f"FAIL Python dependencies failed: {result.stderr}", "ERROR")
                     return False
             else:
-                self.log_deployment("❌ requirements.txt not found", "ERROR")
+                self.log_deployment("FAIL requirements.txt not found", "ERROR")
                 return False
             
             # Check if package.json exists for Node dependencies
@@ -133,20 +133,20 @@ class DeploymentManager:
                 result = subprocess.run(["npm", "install"], capture_output=True, text=True)
                 
                 if result.returncode == 0:
-                    self.log_deployment("✅ Node.js dependencies installed")
+                    self.log_deployment("PASS Node.js dependencies installed")
                 else:
-                    self.log_deployment(f"❌ Node.js dependencies failed: {result.stderr}", "ERROR")
+                    self.log_deployment(f"FAIL Node.js dependencies failed: {result.stderr}", "ERROR")
                     return False
             
             return True
             
         except Exception as e:
-            self.log_deployment(f"❌ Dependency installation failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Dependency installation failed: {e}", "ERROR")
             return False
     
     def setup_environment(self) -> bool:
         """Setup environment configuration"""
-        self.log_deployment("⚙️ Setting up environment...")
+        self.log_deployment("️ Setting up environment...")
         
         try:
             # Check .env file
@@ -156,7 +156,7 @@ class DeploymentManager:
             if not env_file.exists() and env_example.exists():
                 self.log_deployment("Creating .env file from example...")
                 shutil.copy2(env_example, env_file)
-                self.log_deployment("✅ .env file created")
+                self.log_deployment("PASS .env file created")
             
             # Create necessary directories
             directories = ["data", "logs", "deployment"]
@@ -166,17 +166,17 @@ class DeploymentManager:
                 gitkeep = dir_path / ".gitkeep"
                 if not gitkeep.exists():
                     gitkeep.touch()
-                self.log_deployment(f"✅ {dir_name}/ directory ready")
+                self.log_deployment(f"PASS {dir_name}/ directory ready")
             
             return True
             
         except Exception as e:
-            self.log_deployment(f"❌ Environment setup failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Environment setup failed: {e}", "ERROR")
             return False
     
     def deploy_firebase_functions(self) -> bool:
         """Deploy Firebase Functions"""
-        self.log_deployment("🔥 Deploying Firebase Functions...")
+        self.log_deployment("Deploying Firebase Functions...")
         
         try:
             # Check if firebase.json exists
@@ -196,7 +196,7 @@ class DeploymentManager:
                 
                 with open(firebase_config, 'w') as f:
                     json.dump(firebase_config_content, f, indent=2)
-                self.log_deployment("✅ Firebase configuration created")
+                self.log_deployment("PASS Firebase configuration created")
             
             # Deploy functions
             self.log_deployment("Deploying to Firebase...")
@@ -205,19 +205,19 @@ class DeploymentManager:
             ], capture_output=True, text=True, cwd=str(self.project_root))
             
             if result.returncode == 0:
-                self.log_deployment("✅ Firebase Functions deployed")
+                self.log_deployment("PASS Firebase Functions deployed")
                 return True
             else:
-                self.log_deployment(f"❌ Firebase deployment failed: {result.stderr}", "ERROR")
+                self.log_deployment(f"FAIL Firebase deployment failed: {result.stderr}", "ERROR")
                 return False
                 
         except Exception as e:
-            self.log_deployment(f"❌ Firebase deployment failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Firebase deployment failed: {e}", "ERROR")
             return False
     
     def deploy_web_hosting(self) -> bool:
         """Deploy web hosting"""
-        self.log_deployment("🌐 Deploying web hosting...")
+        self.log_deployment(" Deploying web hosting...")
         
         try:
             # Deploy hosting
@@ -226,19 +226,19 @@ class DeploymentManager:
             ], capture_output=True, text=True, cwd=str(self.project_root))
             
             if result.returncode == 0:
-                self.log_deployment("✅ Web hosting deployed")
+                self.log_deployment("PASS Web hosting deployed")
                 return True
             else:
-                self.log_deployment(f"❌ Web hosting deployment failed: {result.stderr}", "ERROR")
+                self.log_deployment(f"FAIL Web hosting deployment failed: {result.stderr}", "ERROR")
                 return False
                 
         except Exception as e:
-            self.log_deployment(f"❌ Web hosting deployment failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Web hosting deployment failed: {e}", "ERROR")
             return False
     
     def setup_docker(self) -> bool:
         """Setup Docker deployment"""
-        self.log_deployment("🐳 Setting up Docker...")
+        self.log_deployment(" Setting up Docker...")
         
         try:
             # Check if Dockerfile exists
@@ -273,7 +273,7 @@ CMD ["python", "-m", "scripts.pipeline"]
 """
                 with open(dockerfile, 'w') as f:
                     f.write(dockerfile_content)
-                self.log_deployment("✅ Dockerfile created")
+                self.log_deployment("PASS Dockerfile created")
             
             # Check if docker-compose.yml exists
             compose_file = self.project_root / "docker-compose.yml"
@@ -303,17 +303,17 @@ services:
 """
                 with open(compose_file, 'w') as f:
                     f.write(compose_content)
-                self.log_deployment("✅ docker-compose.yml created")
+                self.log_deployment("PASS docker-compose.yml created")
             
             return True
             
         except Exception as e:
-            self.log_deployment(f"❌ Docker setup failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Docker setup failed: {e}", "ERROR")
             return False
     
     def run_tests(self) -> bool:
         """Run deployment tests"""
-        self.log_deployment("🧪 Running deployment tests...")
+        self.log_deployment(" Running deployment tests...")
         
         try:
             test_script = self.project_root / "scripts" / "test.py"
@@ -323,22 +323,22 @@ services:
                 ], capture_output=True, text=True)
                 
                 if result.returncode == 0:
-                    self.log_deployment("✅ Deployment tests passed")
+                    self.log_deployment("PASS Deployment tests passed")
                     return True
                 else:
-                    self.log_deployment(f"❌ Deployment tests failed: {result.stderr}", "ERROR")
+                    self.log_deployment(f"FAIL Deployment tests failed: {result.stderr}", "ERROR")
                     return False
             else:
-                self.log_deployment("⚠️ Test script not found, skipping tests")
+                self.log_deployment("WARN Test script not found, skipping tests")
                 return True
                 
         except Exception as e:
-            self.log_deployment(f"❌ Deployment tests failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Deployment tests failed: {e}", "ERROR")
             return False
     
     def create_deployment_backup(self) -> bool:
         """Create deployment backup"""
-        self.log_deployment("💾 Creating deployment backup...")
+        self.log_deployment("SAVE Creating deployment backup...")
         
         try:
             backup_dir = self.project_root / "deployment" / "backups"
@@ -357,11 +357,11 @@ services:
             with open(backup_file, 'w') as f:
                 json.dump(backup_data, f, indent=2)
             
-            self.log_deployment(f"✅ Backup created: {backup_file}")
+            self.log_deployment(f"PASS Backup created: {backup_file}")
             return True
             
         except Exception as e:
-            self.log_deployment(f"❌ Backup creation failed: {e}", "ERROR")
+            self.log_deployment(f"FAIL Backup creation failed: {e}", "ERROR")
             return False
     
     def get_project_structure(self) -> dict:
@@ -380,7 +380,7 @@ services:
     
     async def deploy_all(self, skip_tests: bool = False) -> dict:
         """Execute full deployment"""
-        self.log_deployment("🚀 Starting full deployment...")
+        self.log_deployment("START Starting full deployment...")
         
         start_time = datetime.now()
         deployment_steps = []
@@ -429,13 +429,13 @@ services:
             "deployment_log": self.deployment_log
         }
         
-        self.log_deployment("✅ Full deployment completed successfully!")
+        self.log_deployment("PASS Full deployment completed successfully!")
         return deployment_summary
     
     def print_deployment_report(self, summary: dict):
         """Print deployment report"""
         print("\n" + "="*60)
-        print("🚀 CPR-NFL DEPLOYMENT REPORT")
+        print("START CPR-NFL DEPLOYMENT REPORT")
         print("="*60)
         
         if summary["success"]:
@@ -448,12 +448,12 @@ services:
             if 'step' in summary:
                 print(f"   Step: {summary['step']}")
         else:
-            print(f"🔴 DEPLOYMENT FAILED")
+            print(f" DEPLOYMENT FAILED")
             print(f"   Error: {summary.get('error', 'Unknown error')}")
         
-        print(f"\n📋 DEPLOYMENT LOG:")
+        print(f"\nLIST DEPLOYMENT LOG:")
         for entry in summary.get("deployment_log", [])[-10:]:  # Show last 10 entries
-            level_icon = {"INFO": "ℹ️", "WARNING": "⚠️", "ERROR": "❌"}.get(entry["level"], "ℹ️")
+            level_icon = {"INFO": "ℹ️", "WARNING": "WARN", "ERROR": "FAIL"}.get(entry["level"], "ℹ️")
             print(f"   {level_icon} {entry['timestamp']}: {entry['message']}")
         
         print("="*60)
@@ -510,7 +510,7 @@ async def main():
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(summary, f, indent=2)
-        logger.info(f"💾 Deployment report saved to {args.output}")
+        logger.info(f"SAVE Deployment report saved to {args.output}")
     
     # Exit with appropriate code
     exit_code = 0 if summary["success"] else 1

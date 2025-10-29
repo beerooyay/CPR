@@ -49,33 +49,33 @@ class FirebaseMCPServer:
     
     def __init__(self):
         self.database = Database()
-        logger.info("🔥 Firebase MCP Server Wrapper initialized")
-        logger.info("📋 Use official Firebase MCP: npx firebase-tools@latest mcp")
-        logger.info("🏈 CPR-NFL database operations available via Database class")
+        logger.info("Firebase MCP Server Wrapper initialized")
+        logger.info("Use official Firebase MCP: npx firebase-tools@latest mcp")
+        logger.info("CPR-NFL database operations available via Database class")
     
     def get_cpr_rankings(self, league_id: str = "1267325171853701120") -> Dict[str, Any]:
         """Get REAL CPR rankings from Firebase"""
-        logger.info(f"📊 Getting REAL CPR rankings for league {league_id}")
+        logger.info(f"Getting REAL CPR rankings for league {league_id}")
         return self.database.get_cpr_rankings(league_id, latest_only=True)
     
     def save_cpr_rankings(self, league_id: str, rankings: List[Dict]) -> bool:
         """Save REAL CPR rankings to Firebase"""
-        logger.info(f"💾 Saving REAL CPR rankings for league {league_id}")
+        logger.info(f"Saving REAL CPR rankings for league {league_id}")
         return self.database.save_cpr_rankings(league_id, rankings)
     
     def get_niv_data(self, league_id: str = "1267325171853701120") -> Dict[str, Any]:
         """Get NIV data from Firebase"""
-        logger.info(f"🎯 Getting NIV data for league {league_id}")
+        logger.info(f"TARGET Getting NIV data for league {league_id}")
         return self.database.get_niv_data(league_id, latest_only=True)
     
     def save_niv_data(self, league_id: str, niv_data: List[Dict]) -> bool:
         """Save NIV data to Firebase"""
-        logger.info(f"💾 Saving NIV data for league {league_id}")
+        logger.info(f"SAVE Saving NIV data for league {league_id}")
         return self.database.save_niv_data(league_id, niv_data)
     
     def get_league_data(self, league_id: str = "1267325171853701120") -> Dict[str, Any]:
         """Get complete league analysis data"""
-        logger.info(f"🏈 Getting complete league data for {league_id}")
+        logger.info(f"NFL Getting complete league data for {league_id}")
         
         cpr_data = self.get_cpr_rankings(league_id)
         niv_data = self.get_niv_data(league_id)
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     # Test the Firebase MCP server wrapper
     server = FirebaseMCPServer()
     
-    print("🔥 Firebase MCP Server Wrapper Test")
+    print("Firebase MCP Server Wrapper Test")
     print("=" * 40)
     print("Configuration:")
     print(f"  Command: npx -y firebase-tools@latest mcp")
@@ -117,8 +117,8 @@ if __name__ == "__main__":
     # Test database connection
     try:
         if server.database.is_connected:
-            print("✅ Database connection: OK")
+            print("PASS Database connection: OK")
         else:
-            print("⚠️ Database connection: Not available (local mode)")
+            print("WARN Database connection: Not available (local mode)")
     except Exception as e:
-        print(f"❌ Database connection: Error - {e}")
+        print(f"FAIL Database connection: Error - {e}")

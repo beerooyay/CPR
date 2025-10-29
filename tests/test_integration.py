@@ -13,9 +13,10 @@ from api import SleeperAPI
 from database import Database
 from cpr import CPREngine
 from niv import NIVCalculator
-from jaylen import JaylenAI
 from mcp.client import MCPClient
 from models import LeagueInfo, Team, Player, PlayerStats, CPRMetrics, NIVMetrics, Position, InjuryStatus
+import requests
+import json
 
 class TestSystemIntegration(unittest.TestCase):
     """Test full system integration"""
@@ -28,10 +29,7 @@ class TestSystemIntegration(unittest.TestCase):
         self.cpr_engine = CPREngine({})
         self.niv_calculator = NIVCalculator()
         
-        # Mock AI to avoid API calls
-        with patch('jaylen.OpenRouter'), patch('jaylen.MCPClient'):
-            self.jaylen = JaylenAI()
-        
+        self.firebase_url = "https://us-central1-cpr-nfl.cloudfunctions.net"
         self.mcp_client = MCPClient()
     
     def test_api_to_cpr_workflow(self):

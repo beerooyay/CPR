@@ -49,7 +49,7 @@ class ZionTensorCalculator:
                 logger.warning(f"Failed to fetch week {week} matchups: {e}")
                 continue
         
-        logger.info(f"✅ Loaded matchups for {len(all_matchups)} weeks")
+        logger.info(f"Loaded matchups for {len(all_matchups)} weeks")
         return all_matchups
     
     def _get_team_opponents(self, team_id: str, all_matchups: Dict[int, List[Dict[str, Any]]]) -> List[str]:
@@ -302,10 +302,10 @@ class ZionTensorCalculator:
                 zion_tensors[team.team_id] = tensor_result
                 
                 magnitude = tensor_result['tensor_magnitude']
-                logger.info(f"✅ {team.team_name}: Zion Tensor = {magnitude:.3f}")
+                logger.info(f"{team.team_name}: Zion Tensor = {magnitude:.3f}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to calculate Zion Tensor for {team.team_name}: {e}")
+                logger.error(f"Failed to calculate Zion Tensor for {team.team_name}: {e}")
                 zion_tensors[team.team_id] = {
                     'tensor_vector': [0.5, 0.0, 0.5, 0.5],
                     'tensor_magnitude': 0.5,

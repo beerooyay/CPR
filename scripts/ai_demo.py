@@ -9,9 +9,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 sys.path.append(str(Path(__file__).parent.parent / "mcp"))
 
-from jaylen import JaylenAI
 from client import MCPClient
 from database import LocalDatabase
+import requests
+import json
 
 class DemoJaylenAI:
     """Demo version of Jaylen AI that works without OpenRouter"""
@@ -104,7 +105,7 @@ Based on CPR methodology and current player performance:
 
 async def run_demo():
     """Run AI and MCP demo"""
-    print("🤖 CPR-NFL AI and MCP Demo")
+    print(" CPR-NFL AI and MCP Demo")
     print("=" * 50)
     
     # Initialize components
@@ -113,7 +114,7 @@ async def run_demo():
     db = LocalDatabase(str(Path(__file__).parent.parent / "data"))
     
     # Connect MCP servers
-    print("\n🔌 Connecting MCP servers...")
+    print("\n Connecting MCP servers...")
     firebase_connected = await mcp_client.connect_server('firebase', {
         'command': 'npx',
         'args': ['-y', '@gannonh/firebase-mcp']
@@ -124,59 +125,59 @@ async def run_demo():
         'args': ['mcp/sleeper_server.py']
     })
     
-    print(f"✅ Firebase MCP: {'Connected' if firebase_connected else 'Failed'}")
-    print(f"✅ Sleeper MCP: {'Connected' if sleeper_connected else 'Failed'}")
+    print(f"PASS Firebase MCP: {'Connected' if firebase_connected else 'Failed'}")
+    print(f"PASS Sleeper MCP: {'Connected' if sleeper_connected else 'Failed'}")
     
     # Connect to AI
     ai.set_mcp_client(mcp_client)
     ai.set_database(db)
     
     # Test MCP tools
-    print("\n🛠️ Testing MCP tools...")
+    print("\n️ Testing MCP tools...")
     try:
         league_data = await mcp_client.call_tool('sleeper', 'get_league_info', {
             'league_id': '1267325171853701120'
         })
-        print(f"✅ League Data: {league_data['name']} ({league_data['season']})")
+        print(f"PASS League Data: {league_data['name']} ({league_data['season']})")
         
         teams_data = await mcp_client.call_tool('sleeper', 'get_team_rosters', {
             'league_id': '1267325171853701120'
         })
-        print(f"✅ Teams Data: {len(teams_data)} teams retrieved")
+        print(f"PASS Teams Data: {len(teams_data)} teams retrieved")
         
     except Exception as e:
-        print(f"❌ MCP Tool Error: {e}")
+        print(f"FAIL MCP Tool Error: {e}")
     
     # Test AI analysis
-    print("\n🧠 Testing AI Analysis...")
+    print("\nAI Testing AI Analysis...")
     try:
         cpr_analysis = await ai.analyze_cpr_rankings('1267325171853701120')
-        print("✅ CPR Analysis Generated:")
+        print("PASS CPR Analysis Generated:")
         print(cpr_analysis[:500] + "...")
         
     except Exception as e:
-        print(f"❌ AI Analysis Error: {e}")
+        print(f"FAIL AI Analysis Error: {e}")
     
     # Test trade evaluation
-    print("\n💼 Testing Trade Evaluation...")
+    print("\nTRADE Testing Trade Evaluation...")
     try:
         trade_eval = await ai.evaluate_trade('1267325171853701120', 
             'Team 1 trades Patrick Mahomes for Team 2\'s Justin Herbert and TE upgrade')
-        print("✅ Trade Evaluation:")
+        print("PASS Trade Evaluation:")
         print(trade_eval)
         
     except Exception as e:
-        print(f"❌ Trade Evaluation Error: {e}")
+        print(f"FAIL Trade Evaluation Error: {e}")
     
     # List available tools
-    print("\n📋 Available MCP Tools:")
+    print("\nLIST Available MCP Tools:")
     tools = await mcp_client.list_tools()
     for server, server_tools in tools.items():
         print(f"\n{server.upper()} Server:")
         for tool in server_tools:
             print(f"  - {tool['name']}: {tool['description']}")
     
-    print("\n🎉 Demo Complete!")
+    print("\n Demo Complete!")
     print("\nNext Steps:")
     print("1. Fix OpenRouter API key for real AI responses")
     print("2. Implement web chat interface")

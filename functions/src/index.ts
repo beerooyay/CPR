@@ -68,7 +68,9 @@ async function runPythonPipeline(leagueId: string): Promise<any> {
 }
 
 // Database Context - For AI chat
-export const databaseContext = functions.https.onRequest(async (request: Request, response: Response) => {
+export const databaseContext = functions
+  .runWith({ timeoutSeconds: 60 })
+  .https.onRequest(async (request: Request, response: Response) => {
   return corsHandler(request, response, async () => {
     try {
       console.log('Loading database context for AI...');
@@ -437,7 +439,7 @@ export const chat = functions
   .https.onRequest(async (request: Request, response: Response) => {
   return corsHandler(request, response, async () => {
     try {
-      const { messages, context } = request.body || {};
+      const { messages, context, file_content, file_type } = request.body || {};
 
       if (!messages || !Array.isArray(messages)) {
         response.status(400).json(handleError(new Error('Messages array is required'), 'chat'));
@@ -489,10 +491,29 @@ never just say "this team is better." prove it. say "this team is better because
 always give actionable, specific advice based on your analysis of CPR, NIV, recent sleeper data, injury status, and schedule strength.
 
 you're the voice of the data, but with the soul of a fan who's been in this league since day one. now go talk some shit and drop some knowledge.`;
+      // Build messages with multimodal support if file is present
       const orMessages = [
         { role: 'system', content: systemPrompt },
         ...(context ? [{ role: 'system', content: `context:\n${JSON.stringify(context).slice(0, 4000)}` }] : []),
-        ...messages.map((m: any) => ({ role: m.role, content: String(m.content ?? '') }))
+        ...messages.map((m: any) => {
+          if (m.role === 'user' && file_content && file_type) {
+            // Add multimodal content for user messages with files
+            return {
+              role: m.role,
+              content: [
+                { type: 'text', text: String(m.content ?? '') },
+                { 
+                  type: 'image_url', 
+                  image_url: { 
+                    url: file_content,
+                    detail: 'auto'
+                  } 
+                }
+              ]
+            };
+          }
+          return { role: m.role, content: String(m.content ?? '') };
+        })
       ];
 
       const fetchRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -500,22 +521,75 @@ you're the voice of the data, but with the soul of a fan who's been in this leag
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://cpr-nfl.web.app',
+          'X-Title': 'CPR-NFL Legion Fantasy Football'
         },
         body: JSON.stringify({
           model,
           messages: orMessages,
-          temperature: 0.3,
+          temperature: 0.7,
+          max_tokens: 1000,
+          stream: true
         })
       });
 
       if (!fetchRes.ok) {
-        const text = await fetchRes.text();
-        throw new Error(`OpenRouter error ${fetchRes.status}: ${text}`);
+        const errorText = await fetchRes.text();
+        throw new Error(`OpenRouter API error: ${fetchRes.status} - ${errorText}`);
       }
 
-      const json: any = await fetchRes.json();
-      const content = json?.choices?.[0]?.message?.content || '...';
-      response.status(200).json(createResponse({ response: { role: 'assistant', content } }));
+      // Set headers for streaming
+      response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      response.setHeader('Cache-Control', 'no-cache');
+      response.setHeader('Connection', 'keep-alive');
+      response.setHeader('Access-Control-Allow-Origin', '*');
+
+      // Stream the response
+      const reader = fetchRes.body?.getReader();
+      if (!reader) {
+        throw new Error('Failed to get stream reader');
+      }
+
+      const decoder = new TextDecoder();
+      
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              
+              if (data === '[DONE]') {
+                response.write('data: [DONE]\n\n');
+                response.end();
+                return;
+              }
+              
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content;
+                
+                if (content) {
+                  response.write(`data: ${JSON.stringify({ content })}\n\n`);
+                }
+              } catch (e) {
+                // Skip invalid JSON
+                continue;
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      
+      response.end();
     } catch (error) {
       console.error('Chat error:', error);
       response.status(200).json(createResponse({ response: { role: 'assistant', content: 'had trouble contacting openrouter. try again in a sec.' } }));
