@@ -53,40 +53,22 @@ const SleeperDataCache = {
     },
     
     clearCache() {
-        this.stats = null;
-        this.players = null;
-        this.projections = null;
-        this.rosters = null;
-        console.log('✅ SleeperDataCache cleared');
+        this.stats = this.players = this.projections = this.rosters = null;
     }
 };
 
 // Global function to refresh all data
 window.refreshAllData = async function() {
-    console.log('🔄 REFRESHING ALL DATA...');
-    
-    // Clear all caches
     SleeperDataCache.clearCache();
     DataManager.clearCache();
     window.matchupDataCache = null;
     
-    console.log('✅ All caches cleared');
+    const screen = document.querySelector('.screen.active')?.id;
+    if (screen === 'dashboard') await loadTeamDashboard();
+    else if (screen === 'niv' && selectedTeam) await loadNIVRoster(selectedTeam);
+    else if (screen === 'cpr') await loadCPRScreen();
     
-    // Reload current screen
-    const currentScreen = document.querySelector('.screen.active')?.id;
-    if (currentScreen === 'dashboard') {
-        console.log('🔄 Reloading dashboard...');
-        await loadTeamDashboard();
-    } else if (currentScreen === 'niv' && selectedTeam) {
-        console.log('🔄 Reloading NIV screen...');
-        await loadNIVRoster(selectedTeam);
-    } else if (currentScreen === 'rankings') {
-        console.log('🔄 Reloading CPR rankings...');
-        await loadCPRRankings();
-    }
-    
-    console.log('✅ ALL DATA REFRESHED!');
-    alert('✅ All data refreshed successfully!');
+    alert('Data refreshed');
 };
 let cache = {}; // Data cache (cpr_rankings, niv_data, league_stats, dbContext)
 let uploadedFile = null;
@@ -430,22 +412,17 @@ function updateHeader(screenName) {
             title = 'CPR RANKINGS';
             break;
         case 'niv':
-            if (nivState === 'roster') {
-                console.log('=== HEADER UPDATE DEBUG ===');
-                console.log('selectedTeam:', selectedTeam);
-                console.log('selectedTeam?.team_name:', selectedTeam?.team_name);
-                console.log('selectedTeam?.name:', selectedTeam?.name);
-                
-                const teamName = selectedTeam?.team_name || selectedTeam?.name || 'ROSTER';
-                console.log('Final teamName:', teamName);
-                
-                title = teamName.toUpperCase();
+            if (nivState === 'roster' && selectedTeam) {
+                title = (selectedTeam.team_name || selectedTeam.name).toUpperCase();
                 backAction = () => {
                     nivState = 'teams';
                     selectedTeam = null;
-                    showScreen('niv'); 
+                    updateHeader('niv');
+                    loadNIVTeams();
                 };
             } else {
+                nivState = 'teams';
+                selectedTeam = null;
                 title = 'PLAYER ANALYTICS';
             }
             break;
@@ -486,22 +463,11 @@ function showScreen(screenName) {
     if (screenName === 'cpr') {
         loadCPRScreen();
     } else if (screenName === 'niv') {
-        console.log('=== NIV SCREEN DEBUG ===');
-        console.log('nivState:', nivState);
-        console.log('selectedTeam:', selectedTeam);
-        
-        if (nivState === 'teams') {
-            console.log('Loading NIV teams...');
-            loadNIVTeams();
-        } else if (nivState === 'roster' && selectedTeam) {
-            console.log('selectedTeam keys:', Object.keys(selectedTeam));
-            console.log('selectedTeam.team_name:', selectedTeam.team_name);
-            console.log('selectedTeam stringified:', JSON.stringify(selectedTeam));
-            console.log('Loading NIV roster for:', selectedTeam.team_name);
+        if (nivState === 'roster' && selectedTeam) {
             loadNIVRoster(selectedTeam);
         } else {
-            console.log('NIV condition not met - falling back to teams');
             nivState = 'teams';
+            selectedTeam = null;
             loadNIVTeams();
         }
     } else if (screenName === 'dashboard') {
@@ -523,6 +489,40 @@ async function loadCPRScreen() {
 
         // Update cache
         cache.cpr_rankings = rankings;
+
+        // Fetch matchup data to calculate points for per game
+        const matchupPromises = [];
+        for (let week = 1; week <= 8; week++) {
+            matchupPromises.push(fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/matchups/${week}`).then(r => r.json()));
+        }
+        const matchupData = await Promise.all(matchupPromises);
+        
+        // Get rosters to map roster_id to team_id
+        const rostersResponse = await fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`);
+        const rosters = await rostersResponse.json();
+        
+        // Calculate points for per game for each team
+        const teamPointsMap = {};
+        rosters.forEach(roster => {
+            let totalPoints = 0;
+            let gamesPlayed = 0;
+            
+            matchupData.forEach(weekMatchups => {
+                const teamMatchup = weekMatchups.find(m => m.roster_id === roster.roster_id);
+                if (teamMatchup?.points) {
+                    totalPoints += teamMatchup.points;
+                    gamesPlayed++;
+                }
+            });
+            
+            teamPointsMap[roster.roster_id] = gamesPlayed > 0 ? totalPoints / gamesPlayed : 0;
+        });
+        
+        // Add points_for_per_game to each team
+        rankings.forEach(team => {
+            const roster = rosters.find(r => r.roster_id === team.team_id);
+            team.points_for_per_game = roster ? (teamPointsMap[roster.roster_id] || 0) : 0;
+        });
 
         // Update league health metrics (use API data or reasonable defaults)
         const leagueHealth = payload.league_health ?? 0.85;
@@ -637,43 +637,31 @@ async function loadCPRScreen() {
 // --- NIV Screen Logic ---
 
 async function loadNIVTeams() {
-    console.log('=== LOADING NIV TEAMS ===');
     const container = getNIVContainer();
+    if (!container) return;
     
-    if (!container) {
-        console.error('NIV container not found!');
-        return;
-    }
-    
+    // Clear any previous roster content
     container.innerHTML = '<div class="loading">Loading team NIV metrics...</div>';
     
     try {
-        console.log('Fetching NIV data from API...');
         const data = await DataManager.getNIVData();
-        console.log('Raw API response:', data);
-        
         const payload = data.data || data;
-        console.log('Payload:', payload);
-        
         const teamNivData = payload.team_niv || payload.team_rankings || payload;
-        console.log('Team NIV data:', teamNivData);
-        console.log('Team count:', Array.isArray(teamNivData) ? teamNivData.length : 'Not an array');
 
         if (!Array.isArray(teamNivData) || teamNivData.length === 0) {
-            console.error('No valid team NIV data found');
             container.innerHTML = '<div class="error">No team data available</div>';
             return;
         }
 
-        // Update cache
         cache.niv_data = teamNivData;
 
-        // Show league-wide stats
+        // Reset and show league-wide stats
         const statsContainer = document.getElementById('niv-stats-container');
-        statsContainer.style.display = 'grid';
-        const leagueAvgNiv = teamNivData.reduce((acc, t) => acc + t.avg_niv, 0) / teamNivData.length;
-        const avgTeamScore = await calculateLeagueAvgScore();
-        statsContainer.innerHTML = `
+        if (statsContainer) {
+            statsContainer.style.display = 'grid';
+            const leagueAvgNiv = teamNivData.reduce((acc, t) => acc + t.avg_niv, 0) / teamNivData.length;
+            const avgTeamScore = await calculateLeagueAvgScore();
+            statsContainer.innerHTML = `
             <div class="glass-card">
                 <div class="stat-label">LEAGUE AVG NIV</div>
                 <div class="stat-value">${leagueAvgNiv.toFixed(3)}</div>
@@ -683,6 +671,7 @@ async function loadNIVTeams() {
                 <div class="stat-value">${avgTeamScore.toFixed(1)}</div>
             </div>
         `;
+        }
 
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
@@ -706,21 +695,12 @@ async function loadNIVTeams() {
                 e.preventDefault();
                 e.stopPropagation();
                 
-                console.log('=== TEAM CLICK DEBUG ===');
-                console.log('Team clicked:', teamName);
-                console.log('Team data:', team);
-                
                 selectedTeam = {
                     ...team,
                     rank: index + 1,
                     team_name: teamName
                 };
                 nivState = 'roster';
-                
-                console.log('selectedTeam set to:', selectedTeam);
-                console.log('nivState set to:', nivState);
-                console.log('Calling showScreen(niv)...');
-                
                 showScreen('niv');
             });
 
@@ -755,22 +735,8 @@ async function loadNIVRoster(team) {
     container.innerHTML = '<div class="loading">Loading roster...</div>';
     
     try {
-        console.log('=== ROSTER LOADING DEBUG ===');
-        console.log('team parameter:', team);
-        console.log('team is null/undefined:', team == null);
-        console.log('typeof team:', typeof team);
-        
-        if (!team) {
-            throw new Error('Team object is null or undefined');
-        }
-        
-        console.log('Loading roster for:', team.team_name);
-        console.log('Team object:', team);
-        
-        // The team object already has the players array from goToTeamAnalytics
-        // No need to fetch NIV data again - just use the team object directly
-        if (!team.players || team.players.length === 0) {
-            throw new Error('Team has no players data');
+        if (!team?.players?.length) {
+            throw new Error('Invalid team data');
         }
         
         // Get Sleeper stats for accurate data using global cache
