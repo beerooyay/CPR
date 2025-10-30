@@ -3,33 +3,182 @@ const API_BASE = ''; // Use relative URLs for same-origin requests
 const MODEL = 'openai/gpt-oss-20b:free'; // Confirmed model
 const LEAGUE_ID = '1267325171853701120'; // Legion Fantasy Football League ID
 
-console.log('CPR-NFL App v13.21 - CONVERSATION ISOLATION FIX!');
+console.log('CPR-NFL App v16.6 - STAT DROPDOWN ON LEAGUE ANALYTICS!');
 console.log('Data pipeline fully corrected. All metrics are live and accurate.');
 
-// State Management
+// State// Global state
 let currentScreen = 'home';
-let nivState = 'teams'; // 'teams' or 'roster'
 let selectedTeam = null;
-let cache = {}; // Data cache (cpr_rankings, niv_data, league_stats, dbContext)
+let nivState = 'roster'; // 'roster' or 'bench'
 let chatMessages = [];
-let uploadedFile = null;
-let currentUser = null;
-
-// Update currentUser when window.currentUser changes
-Object.defineProperty(window, 'currentUser', {
-    set: function(user) {
-        currentUser = user;
-        this._currentUser = user;
-    },
-    get: function() {
-        return this._currentUser;
-    }
-});
-let claimedTeam = null; // {team_id, team_name}
 let currentConversationId = null;
+
+// Global data cache for consistent sleeper data
+const SleeperDataCache = {
+    stats: null,
+    players: null,
+    projections: null,
+    rosters: null,
+    
+    async getStats() {
+        if (!this.stats) {
+            const response = await fetch('https://api.sleeper.app/v1/stats/nfl/regular/2025');
+            this.stats = await response.json();
+        }
+        return this.stats;
+    },
+    
+    async getPlayers() {
+        if (!this.players) {
+            const response = await fetch('https://api.sleeper.app/v1/players/nfl');
+            this.players = await response.json();
+        }
+        return this.players;
+    },
+    
+    async getProjections() {
+        if (!this.projections) {
+            const response = await fetch('https://api.sleeper.app/v1/projections/nfl/regular/2025');
+            this.projections = await response.json();
+        }
+        return this.projections;
+    },
+    
+    async getRosters() {
+        if (!this.rosters) {
+            const response = await fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`);
+            this.rosters = await response.json();
+        }
+        return this.rosters;
+    },
+    
+    clearCache() {
+        this.stats = null;
+        this.players = null;
+        this.projections = null;
+        this.rosters = null;
+        console.log('✅ SleeperDataCache cleared');
+    }
+};
+
+// Global function to refresh all data
+window.refreshAllData = async function() {
+    console.log('🔄 REFRESHING ALL DATA...');
+    
+    // Clear all caches
+    SleeperDataCache.clearCache();
+    DataManager.clearCache();
+    window.matchupDataCache = null;
+    
+    console.log('✅ All caches cleared');
+    
+    // Reload current screen
+    const currentScreen = document.querySelector('.screen.active')?.id;
+    if (currentScreen === 'dashboard') {
+        console.log('🔄 Reloading dashboard...');
+        await loadTeamDashboard();
+    } else if (currentScreen === 'niv' && selectedTeam) {
+        console.log('🔄 Reloading NIV screen...');
+        await loadNIVRoster(selectedTeam);
+    } else if (currentScreen === 'rankings') {
+        console.log('🔄 Reloading CPR rankings...');
+        await loadCPRRankings();
+    }
+    
+    console.log('✅ ALL DATA REFRESHED!');
+    alert('✅ All data refreshed successfully!');
+};
+let cache = {}; // Data cache (cpr_rankings, niv_data, league_stats, dbContext)
+let uploadedFile = null;
+
+// Centralized Data Manager
+const DataManager = {
+    async getCPRData(forceRefresh = false) {
+        if (!forceRefresh && cache.cpr_rankings) return cache.cpr_rankings;
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        try {
+            const response = await fetch(`/api/cpr?league_id=${LEAGUE_ID}&season=2025`, { 
+                signal: controller.signal 
+            });
+            if (!response.ok) throw new Error('CPR data fetch failed');
+            const data = await response.json();
+            cache.cpr_rankings = data;
+            return data;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
+    
+    async getNIVData(forceRefresh = false) {
+        if (!forceRefresh && cache.niv_data) return cache.niv_data;
+        
+        try {
+            const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
+            if (!response.ok) throw new Error('NIV data fetch failed');
+            const data = await response.json();
+            cache.niv_data = data;
+            return data;
+        } catch (error) {
+            const errorText = await response?.text() || 'Network error';
+            throw new Error(`Failed to load NIV data: ${errorText}`);
+        }
+    },
+    
+    async getDatabaseContext(forceRefresh = false) {
+        if (!forceRefresh && cache.dbContext) return cache.dbContext;
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        try {
+            const response = await fetch(`/api/databaseContext?league_id=${LEAGUE_ID}`, { 
+                signal: controller.signal 
+            });
+            if (!response.ok) throw new Error('Database context fetch failed');
+            const data = await response.json();
+            cache.dbContext = data;
+            return data;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
+    
+    clearCache() {
+        cache = {};
+        console.log('✅ DataManager cache cleared');
+    },
+    
+    clearCacheKey(key) {
+        delete cache[key];
+    }
+};
+
+// Initialize window globals
+window.currentUser = window.currentUser || null;
+window.claimedTeam = window.claimedTeam || null;
+
+// Load claimedTeam from localStorage on startup
+const savedTeam = localStorage.getItem('claimedTeam');
+if (savedTeam && !window.claimedTeam) {
+    try {
+        window.claimedTeam = JSON.parse(savedTeam);
+        console.log('Loaded claimed team from localStorage:', window.claimedTeam);
+    } catch (error) {
+        console.error('Error parsing saved team:', error);
+        localStorage.removeItem('claimedTeam');
+    }
+} // {team_id, team_name}
 let conversations = [];
 
 // --- Utility Functions ---
+
+// DOM element getters to reduce duplication
+const getChatContainer = () => document.getElementById('chat-messages');
+const getRankingsContainer = () => document.getElementById('rankings-container');
+const getNIVContainer = () => document.getElementById('niv-container');
 
 function getRankSuffix(rank) {
     const lastDigit = rank % 10;
@@ -77,20 +226,9 @@ function debounce(func, wait) {
 }
 
 async function loadDatabaseContext() {
-    if (cache.dbContext) return cache.dbContext;
-    
     try {
         console.log('Loading database context for AI...');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
-        const response = await fetch(`/api/databaseContext?league_id=${LEAGUE_ID}`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) throw new Error(`Failed to load database context (${response.status})`);
-        
-        const data = await response.json();
-        cache.dbContext = data;
+        const data = await DataManager.getDatabaseContext();
         console.log('Database context loaded successfully');
         return cache.dbContext;
     } catch (error) {
@@ -100,7 +238,171 @@ async function loadDatabaseContext() {
     }
 }
 
-// --- Screen Navigation ---
+// --- Event Delegation ---
+document.addEventListener('click', (e) => {
+    const target = e.target;
+    
+    // Handle claim team buttons
+    if (target.classList.contains('claim-team-btn')) {
+        e.stopPropagation();
+        const teamId = target.getAttribute('data-team-id');
+        const teamName = target.getAttribute('data-team-name');
+        claimTeam(teamId, teamName);
+        return;
+    }
+    
+    // Handle scouting report buttons
+    if (target.classList.contains('scouting-report-btn')) {
+        e.stopPropagation();
+        const id = target.getAttribute('data-id');
+        const type = target.getAttribute('data-type');
+        getScoutingReport(id, type);
+        return;
+    }
+    
+    // Handle team analytics buttons
+    if (target.classList.contains('team-analytics-btn')) {
+        e.stopPropagation();
+        const teamId = target.getAttribute('data-team-id');
+        const teamName = target.getAttribute('data-team-name');
+        goToTeamAnalytics(teamId, teamName);
+        return;
+    }
+    
+    // Handle trade partner buttons
+    if (target.classList.contains('trade-partner-btn')) {
+        e.stopPropagation();
+        const playerId = target.getAttribute('data-player-id');
+        const type = target.getAttribute('data-type');
+        const playerName = target.getAttribute('data-player-name');
+        findTradePartner(playerId, type, playerName);
+        return;
+    }
+    
+    // Handle conversation rename
+    if (target.classList.contains('rename-conversation-btn')) {
+        e.stopPropagation();
+        const convId = target.getAttribute('data-conversation-id');
+        const currentTitle = target.getAttribute('data-current-title');
+        renameConversation(convId, currentTitle);
+        return;
+    }
+    
+    // Handle conversation delete
+    if (target.classList.contains('delete-conversation-btn')) {
+        e.stopPropagation();
+        const convId = target.getAttribute('data-conversation-id');
+        deleteConversation(convId);
+        return;
+    }
+    
+    // Handle roster tabs
+    if (target.classList.contains('roster-tab')) {
+        const tab = target.getAttribute('data-tab');
+        switchRosterTab(tab);
+        return;
+    }
+    
+    // Handle generate visualization button
+    if (target.classList.contains('generate-viz-btn')) {
+        generateCPRVisualization();
+        return;
+    }
+    
+    // Handle new conversation button
+    if (target.classList.contains('new-conversation-btn')) {
+        startNewConversation();
+        return;
+    }
+    
+    // Handle logout button
+    if (target.classList.contains('logout-btn')) {
+        logout();
+        return;
+    }
+    
+    // Handle team dashboard button
+    if (target.classList.contains('team-dashboard-btn') && !target.disabled) {
+        goToTeamDashboard();
+        return;
+    }
+    
+    // Handle login buttons
+    if (target.classList.contains('login-google-btn')) {
+        loginGoogle();
+        return;
+    }
+    
+    if (target.classList.contains('login-email-btn')) {
+        loginEmail();
+        return;
+    }
+    
+    if (target.classList.contains('signup-email-btn')) {
+        signupEmail();
+        return;
+    }
+});
+
+// --- Custom Dropdown Functionality ---
+document.addEventListener('DOMContentLoaded', () => {
+    // This single pointerdown handler manages all custom dropdown logic.
+    // It replaces the previous separate click/pointerdown handlers to avoid conflicts.
+    document.body.addEventListener('pointerdown', (e) => {
+        const target = e.target;
+
+        // Normalize target: if a text node is clicked, use its parent.
+        const targetEl = (target && target.nodeType === 3) ? target.parentElement : target;
+        if (!targetEl) return;
+
+        const isOption = targetEl.matches('.dropdown-option');
+        const dropdownWrapper = targetEl.closest('.custom-dropdown');
+
+        // Case 1: An option was clicked. This is the highest priority.
+        if (isOption && dropdownWrapper) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const selected = dropdownWrapper.querySelector('.dropdown-selected');
+            const value = targetEl.getAttribute('data-value') || '';
+
+            if (selected) selected.textContent = targetEl.textContent || '';
+            dropdownWrapper.classList.remove('open');
+
+            // Trigger the correct update function based on which dropdown was used.
+            if (dropdownWrapper.id === 'stats-dropdown-wrapper') {
+                window.currentStatsSelection = value;
+                updatePlayerStats();
+            } else if (dropdownWrapper.id === 'position-filter-wrapper') {
+                window.currentPositionFilter = value;
+                updateLeagueAnalytics();
+            } else if (dropdownWrapper.id === 'availability-filter-wrapper') {
+                window.currentAvailabilityFilter = value;
+                updateLeagueAnalytics();
+            } else if (dropdownWrapper.id === 'analytics-stats-dropdown-wrapper') {
+                window.currentAnalyticsStatsSelection = value;
+                updateLeagueAnalytics();
+            }
+            return; // Stop processing
+        }
+
+        // Close all dropdowns that are not the one being interacted with.
+        document.querySelectorAll('.custom-dropdown').forEach(d => {
+            if (d !== dropdownWrapper) {
+                d.classList.remove('open');
+            }
+        });
+
+        // Case 2: The dropdown wrapper itself was clicked. Toggle it.
+        if (dropdownWrapper) {
+            setTimeout(() => {
+                dropdownWrapper.classList.toggle('open');
+            }, 0);
+        }
+    });
+});
+
+// --- Team Dashboard Functions ---
 
 function updateHeader(screenName) {
     const header = document.getElementById('shared-header');
@@ -203,33 +505,19 @@ function showScreen(screenName) {
             loadNIVTeams();
         }
     } else if (screenName === 'dashboard') {
-        loadDashboard();
+        loadTeamDashboard();
     }
 }
 
 // --- CPR Screen Logic ---
 
 async function loadCPRScreen() {
-    const container = document.getElementById('rankings-container');
+    const container = getRankingsContainer();
     container.innerHTML = '<div class="loading">Loading CPR rankings...</div>';
     
     try {
         console.log('Loading CPR data for Legion Fantasy Football...');
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-        
-        const response = await fetch(`/api/cpr?league_id=${LEAGUE_ID}&season=2025`, { 
-            signal: controller.signal 
-        });
-        
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error(`Failed to fetch CPR data: ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await DataManager.getCPRData();
         const payload = data.data || data;
         const rankings = payload.rankings || payload;
 
@@ -265,11 +553,18 @@ async function loadCPRScreen() {
             // Use TEAM NAME from Legion data, not user name
             const teamName = team.team_name || team.name || `Team ${team.rank}`;
             
+            // Check if this team is claimed
+            const isClaimedTeam = window.claimedTeam && team.team_id === window.claimedTeam.team_id;
+            const claimedByText = isClaimedTeam ? `<div class="claimed-by-text">claimed by ${window.currentUser?.displayName || window.currentUser?.email?.split('@')[0] || 'you'}</div>` : '';
+            
             row.innerHTML = `
                 <div class="tile-header">
                     <div class="rank-badge">${team.rank}</div>
-                    <div class="tile-name">${teamName.toUpperCase()}</div>
-                    <button class="claim-team-btn" data-team-id="${team.team_id}" onclick="event.stopPropagation(); claimTeam('${team.team_id}', '${teamName.replace(/'/g, "\\'")}')">CLAIM TEAM</button>
+                    <div class="tile-name-container">
+                        <div class="tile-name">${teamName.toUpperCase()}</div>
+                        ${claimedByText}
+                    </div>
+                    <button class="claim-team-btn" data-team-id="${team.team_id}" data-team-name="${teamName.replace(/'/g, "\\'")}">CLAIM TEAM</button>
                     <div class="tile-score">${team.cpr.toFixed(3)}</div>
                 </div>
                 <div class="tile-dropdown">
@@ -297,7 +592,7 @@ async function loadCPRScreen() {
                             <div class="module-title">PERFORMANCE</div>
                             <div class="metric-row">
                                 <div class="metric-label">AVG POINTS FOR / GAME</div>
-                                <div class="metric-value">${((team.wins + team.losses) * 100 + Math.random() * 50).toFixed(1)} <span class="rank-indicator">(${getRankSuffix(pfRanks[team.team_id] || 1)})</span></div>
+                                <div class="metric-value">${team.points_for_per_game ? team.points_for_per_game.toFixed(1) : '0.0'} <span class="rank-indicator">(${getRankSuffix(pfRanks[team.team_id] || 1)})</span></div>
                             </div>
                             <div class="metric-row">
                                 <div class="metric-label">STRENGTH OF SCHEDULE</div>
@@ -305,7 +600,7 @@ async function loadCPRScreen() {
                             </div>
                             <div class="metric-row">
                                 <div class="metric-label">AVG OPPONENT STRENGTH</div>
-                                <div class="metric-value">${(0.5 + Math.random() * 0.5).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(1)})</span></div>
+                                <div class="metric-value">${(team.zion * 0.8 + 0.1).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(zionRanks[team.team_id] || 1)})</span></div>
                             </div>
                             <div class="metric-row">
                                 <div class="metric-label">SCHEDULE MOMENTUM</div>
@@ -314,8 +609,8 @@ async function loadCPRScreen() {
                         </div>
                     </div>
                     <div class="dropdown-buttons">
-                        <button class="dropdown-btn primary" onclick="getScoutingReport('${team.team_id}', 'team')">GET SCOUTING REPORT</button>
-                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}', '${teamName.replace(/'/g, "\\'")}')">GO TO TEAM ANALYTICS</button>
+                        <button class="dropdown-btn scouting-report-btn" data-id="${team.team_id}" data-type="team">GET SCOUTING REPORT</button>
+                        <button class="dropdown-btn team-analytics-btn" data-team-id="${team.team_id}" data-team-name="${teamName.replace(/'/g, "\\'")}">GO TO TEAM ANALYTICS</button>
                     </div>
                 </div>
             `;
@@ -329,6 +624,9 @@ async function loadCPRScreen() {
         });
 
         container.appendChild(fragment);
+        
+        // Update claim buttons after rendering
+        updateClaimButtons();
 
     } catch (error) {
         console.error('Error loading CPR screen:', error);
@@ -340,7 +638,7 @@ async function loadCPRScreen() {
 
 async function loadNIVTeams() {
     console.log('=== LOADING NIV TEAMS ===');
-    const container = document.getElementById('niv-container');
+    const container = getNIVContainer();
     
     if (!container) {
         console.error('NIV container not found!');
@@ -351,17 +649,7 @@ async function loadNIVTeams() {
     
     try {
         console.log('Fetching NIV data from API...');
-        
-        const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
-        console.log('API response status:', response.status);
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('API error:', errorText);
-            throw new Error(`Failed to fetch NIV data: ${response.status}`);
-        }
-        
-        const data = await response.json();
+        const data = await DataManager.getNIVData();
         console.log('Raw API response:', data);
         
         const payload = data.data || data;
@@ -384,14 +672,15 @@ async function loadNIVTeams() {
         const statsContainer = document.getElementById('niv-stats-container');
         statsContainer.style.display = 'grid';
         const leagueAvgNiv = teamNivData.reduce((acc, t) => acc + t.avg_niv, 0) / teamNivData.length;
+        const avgTeamScore = await calculateLeagueAvgScore();
         statsContainer.innerHTML = `
             <div class="glass-card">
                 <div class="stat-label">LEAGUE AVG NIV</div>
                 <div class="stat-value">${leagueAvgNiv.toFixed(3)}</div>
             </div>
             <div class="glass-card">
-                <div class="stat-label">TEAMS</div>
-                <div class="stat-value">${teamNivData.length}</div>
+                <div class="stat-label">AVG TEAM SCORE</div>
+                <div class="stat-value">${avgTeamScore.toFixed(1)}</div>
             </div>
         `;
 
@@ -447,7 +736,7 @@ async function loadNIVTeams() {
 }
 
 async function loadNIVRoster(team) {
-    const container = document.getElementById('niv-container');
+    const container = getNIVContainer();
     const statsContainer = document.getElementById('niv-stats-container');
     
     // Show team stats
@@ -478,40 +767,23 @@ async function loadNIVRoster(team) {
         console.log('Loading roster for:', team.team_name);
         console.log('Team object:', team);
         
-        // Temporarily use niv endpoint since teamRoster deployment is failing
-        const nivResponse = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
-        if (!nivResponse.ok) {
-            console.error('NIV API error:', nivResponse.status, nivResponse.statusText);
-            throw new Error(`Failed to fetch NIV data (${nivResponse.status}): ${nivResponse.statusText}`);
+        // The team object already has the players array from goToTeamAnalytics
+        // No need to fetch NIV data again - just use the team object directly
+        if (!team.players || team.players.length === 0) {
+            throw new Error('Team has no players data');
         }
         
-        const nivData = await nivResponse.json();
-        const teamNIV = nivData.data?.team_niv || [];
+        // Get Sleeper stats for accurate data using global cache
+        const statsData = await SleeperDataCache.getStats();
         
-        console.log('Team properties:', Object.keys(team));
-        console.log('team.team_name:', team.team_name);
-        console.log('team.name:', team.name);
-        console.log('Looking for team:', team.team_name || team.name);
-        console.log('Available teams:', teamNIV.map(t => t.team_name));
-        
-        const teamNameToFind = team.team_name || team.name;
-        const foundTeam = teamNIV.find(t => t.team_name === teamNameToFind);
-        
-        if (!foundTeam) {
-            console.error(`Team '${teamNameToFind}' not found. Available:`, teamNIV.map(t => t.team_name));
-            throw new Error(`TEAMNAME IS NOT DEFINED - team object: ${JSON.stringify(team)}`);
-        }
-        
-        // Use the NIV data as roster data
-        const data = {
-            data: {
-                players: foundTeam.players || [],
-                team: foundTeam
-            }
-        };
-        
-        const payload = data.data || data;
-        const roster = payload.players || payload.niv_data || payload;
+        // Merge NIV data (already in team.players) with Sleeper stats
+        const roster = team.players.map(player => {
+            const sleeperStats = statsData[player.player_id] || {};
+            return {
+                ...player,
+                ...sleeperStats
+            };
+        });
         
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
@@ -525,6 +797,38 @@ async function loadNIVRoster(team) {
             const position = player.position || 'N/A';
             const nflTeam = player.team || 'FA';
             
+            // Use real sleeper stats if available
+            const avgFantasyPPG = player.pts_ppr && player.gp ? (player.pts_ppr / player.gp).toFixed(2) : '0.00';
+            const totalFantasyPoints = player.pts_ppr ? player.pts_ppr.toFixed(2) : '0.00';
+            const gamesPlayed = player.gp ? player.gp.toFixed(0) : '0';
+            
+            // Position specific stats
+            let primaryStatLabel = 'YARDS';
+            let primaryStatValue = '0';
+            let touchdowns = '0';
+            
+            if (position === 'QB') {
+                primaryStatLabel = 'PASS YDS';
+                primaryStatValue = player.pass_yd ? player.pass_yd.toFixed(0) : '0';
+                touchdowns = player.pass_td ? player.pass_td.toFixed(0) : '0';
+            } else if (position === 'RB') {
+                primaryStatLabel = 'RUSH YDS';
+                primaryStatValue = player.rush_yd ? player.rush_yd.toFixed(0) : '0';
+                touchdowns = (player.rush_td || 0).toFixed(0);
+            } else if (position === 'WR' || position === 'TE') {
+                primaryStatLabel = 'REC YDS';
+                primaryStatValue = player.rec_yd ? player.rec_yd.toFixed(0) : '0';
+                touchdowns = (player.rec_td || 0).toFixed(0);
+            } else if (position === 'K') {
+                primaryStatLabel = 'FGM';
+                primaryStatValue = player.fgm ? player.fgm.toFixed(0) : '0';
+                touchdowns = 'N/A';
+            } else if (position === 'DEF') {
+                primaryStatLabel = 'PTS ALLOWED';
+                primaryStatValue = player.def_pts_allowed ? player.def_pts_allowed.toFixed(0) : '0';
+                touchdowns = player.def_td ? player.def_td.toFixed(0) : '0';
+            }
+            
             row.innerHTML = `
                 <div class="tile-header">
                     <div class="rank-badge">${index + 1}</div>
@@ -537,44 +841,44 @@ async function loadNIVRoster(team) {
                             <div class="module-title">FANTASY PERFORMANCE</div>
                             <div class="metric-row">
                                 <div class="metric-label">AVG FANTASY PPG</div>
-                                <div class="metric-value">${(player.market_niv * 0.3 + Math.random() * 5).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.rank || 1)})</span></div>
+                                <div class="metric-value">${avgFantasyPPG} <span class="rank-indicator">(PPR)</span></div>
                             </div>
                             <div class="metric-row">
-                                <div class="metric-label">PROJECTION</div>
-                                <div class="metric-value">${(player.market_niv * 0.4 + Math.random() * 3).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.positional_rank || 1)})</span></div>
+                                <div class="metric-label">TOTAL FPTS</div>
+                                <div class="metric-value">${totalFantasyPoints} <span class="rank-indicator">(PPR)</span></div>
                             </div>
                             <div class="metric-row">
-                                <div class="metric-label">MOMENTUM</div>
-                                <div class="metric-value">${(player.explosive_niv * 0.02 + Math.random() * 0.5).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.rank || 1)})</span></div>
+                                <div class="metric-label">GAMES PLAYED</div>
+                                <div class="metric-value">${gamesPlayed} <span class="rank-indicator">GAMES</span></div>
                             </div>
-                             <div class="metric-row">
-                                <div class="metric-label">LAST 3 AVG</div>
-                                <div class="metric-value">${(player.consistency_niv * 0.2 + Math.random() * 2).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.positional_rank || 1)})</span></div>
+                            <div class="metric-row">
+                                <div class="metric-label">NIV SCORE</div>
+                                <div class="metric-value">${player.niv ? player.niv.toFixed(3) : '0.000'} <span class="rank-indicator">(SCORE)</span></div>
                             </div>
                         </div>
                         <div class="dropdown-module">
                             <div class="module-title">POSITION STATS</div>
                             <div class="metric-row">
-                                <div class="metric-label">${position === 'QB' ? 'PASS YDS' : position === 'RB' ? 'RUSH YDS' : 'REC YDS'}</div>
-                                <div class="metric-value">${Math.floor(player.market_niv * (position === 'QB' ? 50 : position === 'RB' ? 15 : 12) + Math.random() * 200)} <span class="rank-indicator">(${getRankSuffix(player.positional_rank || 1)})</span></div>
+                                <div class="metric-label">${primaryStatLabel}</div>
+                                <div class="metric-value">${primaryStatValue} <span class="rank-indicator">(TOTAL)</span></div>
                             </div>
                             <div class="metric-row">
                                 <div class="metric-label">TOUCHDOWNS</div>
-                                <div class="metric-value">${Math.floor(player.explosive_niv * 0.3 + Math.random() * 5)} <span class="rank-indicator">(${getRankSuffix(player.positional_rank || 1)})</span></div>
+                                <div class="metric-value">${touchdowns} <span class="rank-indicator">(TOTAL)</span></div>
                             </div>
                             <div class="metric-row">
-                                <div class="metric-label">GAMES PLAYED</div>
-                                <div class="metric-value">${Math.floor(Math.random() * 3) + 6} <span class="rank-indicator">(${getRankSuffix(player.rank || 1)})</span></div>
+                                <div class="metric-label">TARGETS/RUSHES</div>
+                                <div class="metric-value">${position === 'QB' ? (player.pass_att ? player.pass_att.toFixed(0) : '0') : position === 'RB' ? (player.rush_att ? player.rush_att.toFixed(0) : '0') : (player.rec_tgt ? player.rec_tgt.toFixed(0) : '0')} <span class="rank-indicator">(ATTEMPTS)</span></div>
                             </div>
                             <div class="metric-row">
-                                <div class="metric-label">TOTAL FPTS</div>
-                                <div class="metric-value">${(player.market_niv * 2.5 + Math.random() * 20).toFixed(2)} <span class="rank-indicator">(${getRankSuffix(player.rank || 1)})</span></div>
+                                <div class="metric-label">${position === 'QB' ? 'INTS' : position === 'RB' || position === 'WR' || position === 'TE' ? 'FUMBLES' : 'SACKS'}</div>
+                                <div class="metric-value">${position === 'QB' ? (player.pass_int ? player.pass_int.toFixed(0) : '0') : position === 'RB' || position === 'WR' || position === 'TE' ? (player.fum ? player.fum.toFixed(0) : '0') : (player.def_sack ? player.def_sack.toFixed(0) : '0')} <span class="rank-indicator">(LOST)</span></div>
                             </div>
                         </div>
                     </div>
                     <div class="dropdown-buttons">
-                        <button class="dropdown-btn primary" onclick="getScoutingReport('${player.player_id}', 'player')">GET SCOUTING REPORT</button>
-                        <button class="dropdown-btn secondary" onclick="goToTeamAnalytics('${team.team_id}', '${team.team_name.replace(/'/g, "\\'")}')">GO TO TEAM ANALYTICS</button>
+                        <button class="dropdown-btn scouting-report-btn" data-id="${player.player_id}" data-type="player">GET SCOUTING REPORT</button>
+                        <button class="dropdown-btn trade-partner-btn" data-player-id="${player.player_id}" data-type="player" data-player-name="${playerName.replace(/'/g, "\\'")}">FIND TRADE PARTNER</button>
                     </div>
                 </div>
             `;
@@ -615,7 +919,7 @@ function processMarkdown(text) {
 // --- Chat Screen Logic ---
 
 async function loadChatScreen() {
-    const container = document.getElementById('chat-messages');
+    const container = getChatContainer();
     
     if (chatMessages.length === 0) {
         container.innerHTML = `
@@ -702,7 +1006,7 @@ async function sendMessage() {
     uploadedFile = null;
     
     // Remove welcome message if this is first message
-    const container = document.getElementById('chat-messages');
+    const container = getChatContainer();
     const welcomeContainer = container.querySelector('.welcome-message-container');
     if (welcomeContainer) {
         welcomeContainer.remove();
@@ -744,7 +1048,7 @@ async function sendMessage() {
         chatMessages.push({ role: 'assistant', content: '', streaming: true, id: streamingId });
         
         // Add streaming message to DOM
-        const container = document.getElementById('chat-messages');
+        const container = getChatContainer();
         const streamingHTML = `
             <div class="message assistant streaming-message" data-id="${streamingId}">
                 <div class="message-avatar">
@@ -885,7 +1189,7 @@ async function sendMessage() {
 }
 
 function renderChatMessages() {
-    const container = document.getElementById('chat-messages');
+    const container = getChatContainer();
     const isScrolledToBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
     
     console.log('=== RENDERING CHAT MESSAGES ===');
@@ -914,11 +1218,19 @@ function renderChatMessages() {
             .map(msg => {
                 const isUser = msg.role === 'user';
                 if (isUser) {
-                    return `
-                        <div class="message user">
-                            <div class="user-prompt">${msg.content}</div>
-                        </div>
-                    `;
+                    if (msg.isButton) {
+                        return `
+                            <div class="message user">
+                                <div class="user-button-message">${msg.content}</div>
+                            </div>
+                        `;
+                    } else {
+                        return `
+                            <div class="message user">
+                                <div class="user-prompt">${msg.content}</div>
+                            </div>
+                        `;
+                    }
                 } else {
                     return `
                         <div class="message assistant">
@@ -942,7 +1254,7 @@ function renderChatMessages() {
 }
 
 function scrollToBottom(smooth = false) {
-    const container = document.getElementById('chat-messages');
+    const container = getChatContainer();
     if (smooth) {
         container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     } else {
@@ -1005,110 +1317,7 @@ async function handleFileUpload(event) {
 
 // --- Team Dashboard Logic ---
 
-async function loadDashboard() {
-    const container = document.getElementById('dashboard-content');
-    
-    if (!claimedTeam) {
-        container.innerHTML = '<div class="error">Please claim a team first</div>';
-        return;
-    }
-    
-    container.innerHTML = '<div class="loading">Loading team dashboard...</div>';
-    
-    try {
-        // Fetch team roster data
-        const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
-        if (!response.ok) throw new Error('Failed to fetch team data');
-        
-        const data = await response.json();
-        const payload = data.data || data;
-        const teams = payload.teams || payload;
-        
-        // Find claimed team data
-        const teamData = teams.find(t => t.team_id === claimedTeam.team_id);
-        
-        if (!teamData) {
-            container.innerHTML = '<div class="error">Team data not found</div>';
-            return;
-        }
-        
-        // Build dashboard layout
-        container.innerHTML = `
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                <!-- Team Roster (left, spans 2 rows) -->
-                <div style="grid-row: span 2;">
-                    <div class="glass-card" style="padding: 24px;">
-                        <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">TEAM ROSTER</h3>
-                        <div id="dashboard-roster"></div>
-                    </div>
-                </div>
-                
-                <!-- Team Stats (top right) -->
-                <div>
-                    <div class="glass-card" style="padding: 24px;">
-                        <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">TEAM STATS</h3>
-                        <div id="dashboard-stats"></div>
-                    </div>
-                </div>
-                
-                <!-- League Leaders (bottom right) -->
-                <div>
-                    <div class="glass-card" style="padding: 24px;">
-                        <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">LEAGUE LEADERS</h3>
-                        <div id="dashboard-leaders"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Player Analyzer (full width bottom) -->
-            <div class="glass-card" style="padding: 24px;">
-                <h3 style="font-family: 'Work Sans', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; color: #fff;">PLAYER ANALYZER</h3>
-                <div id="dashboard-analyzer">
-                    <p style="font-family: 'Work Sans', sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); text-align: center; padding: 40px;">Player comparison and analysis tools coming soon</p>
-                </div>
-            </div>
-        `;
-        
-        // Populate roster
-        const rosterContainer = document.getElementById('dashboard-roster');
-        if (teamData.roster && teamData.roster.length > 0) {
-            rosterContainer.innerHTML = teamData.roster.map(player => `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 8px;">
-                    <div>
-                        <div style="font-family: 'Work Sans', sans-serif; font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase;">${player.name || 'Unknown Player'}</div>
-                        <div style="font-family: 'Work Sans', sans-serif; font-size: 11px; color: rgba(255,255,255,0.5);">${player.position || 'N/A'}</div>
-                    </div>
-                    <div style="font-family: 'Work Sans', sans-serif; font-size: 14px; font-weight: 700; color: #fff;">${(player.niv || 0).toFixed(2)}</div>
-                </div>
-            `).join('');
-        } else {
-            rosterContainer.innerHTML = '<p style="font-family: Work Sans, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); text-align: center;">No roster data available</p>';
-        }
-        
-        // Populate stats
-        const statsContainer = document.getElementById('dashboard-stats');
-        statsContainer.innerHTML = `
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-                <div style="display: flex; justify-content: space-between; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
-                    <span style="font-family: 'Work Sans', sans-serif; font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 1px; text-transform: uppercase;">TEAM NIV</span>
-                    <span style="font-family: 'Work Sans', sans-serif; font-size: 13px; font-weight: 700; color: #fff;">${(teamData.team_niv || 0).toFixed(2)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
-                    <span style="font-family: 'Work Sans', sans-serif; font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 1px; text-transform: uppercase;">ROSTER SIZE</span>
-                    <span style="font-family: 'Work Sans', sans-serif; font-size: 13px; font-weight: 700; color: #fff;">${teamData.roster?.length || 0}</span>
-                </div>
-            </div>
-        `;
-        
-        // Populate league leaders (placeholder)
-        const leadersContainer = document.getElementById('dashboard-leaders');
-        leadersContainer.innerHTML = '<p style="font-family: Work Sans, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); text-align: center;">League leaders data coming soon</p>';
-        
-    } catch (error) {
-        console.error('Error loading dashboard:', error);
-        container.innerHTML = '<div class="error">Failed to load team dashboard</div>';
-    }
-}
+// REMOVED: Duplicate loadDashboard function - using loadTeamDashboard instead
 
 // --- Conversation Management ---
 
@@ -1289,10 +1498,10 @@ function updateConversationList() {
                         <div class="conversation-meta">${conv.tokenCount} tokens • ${lastMessageTime}</div>
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <button onclick="event.stopPropagation(); renameConversation('${conv.id}', '${conv.title.replace(/'/g, "\\'")}')" style="background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px;">
+                        <button class="rename-conversation-btn" data-conversation-id="${conv.id}" data-current-title="${conv.title.replace(/'/g, "\\'")}" style="background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px;">
                             <i class="fa-solid fa-edit" style="font-size: 12px;"></i>
                         </button>
-                        <button onclick="event.stopPropagation(); deleteConversation('${conv.id}')" style="background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px;">
+                        <button class="delete-conversation-btn" data-conversation-id="${conv.id}" style="background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px;">
                             <i class="fa-solid fa-trash" style="font-size: 12px;"></i>
                         </button>
                     </div>
@@ -1435,23 +1644,168 @@ function closeProfile() {
 
 // Navigation functions
 function goToTeamDashboard() {
-    if (!claimedTeam) {
+    if (!window.claimedTeam) {
         alert('Please claim a team first');
         return;
     }
     closeProfile();
     showScreen('dashboard');
+    loadTeamDashboard();
+}
+
+async function loadTeamDashboard() {
+    console.log('Loading team dashboard...');
+    
+    const container = document.getElementById('dashboard-content');
+    if (!container) return;
+    
+    // Get current user's team data
+    const teamData = await getCurrentUserTeam();
+    
+    container.innerHTML = `
+        <div class="dashboard-layout">
+            <!-- Left Module: Roster Management -->
+            <div class="dashboard-left">
+                <div class="module-header">
+                    <h2 class="module-title">${teamData?.team_name || 'YOUR TEAM'}</h2>
+                    <div class="module-subtitle">ROSTER & ANALYTICS</div>
+                </div>
+                
+                <!-- Roster Tabs -->
+                <div class="roster-tabs">
+                    <button class="roster-tab active" data-tab="roster">ROSTER</button>
+                    <button class="roster-tab" data-tab="matchup">MATCHUP</button>
+                    <button class="roster-tab" data-tab="optimize">OPTIMIZE</button>
+                </div>
+                
+                <!-- Stats Dropdown -->
+                <div class="stats-dropdown-container">
+                    <div class="custom-dropdown" id="stats-dropdown-wrapper">
+                        <div class="dropdown-selected" id="stats-dropdown-selected">AVG FANTASY POINTS PER GAME</div>
+                        <div class="dropdown-arrow">▼</div>
+                        <div class="dropdown-options" id="stats-dropdown-options">
+                            <div class="dropdown-option" data-value="avg_points">AVG FANTASY POINTS PER GAME</div>
+                            <div class="dropdown-option" data-value="projected_points">PROJECTED POINTS</div>
+                            <div class="dropdown-option" data-value="start_percent">ADP</div>
+                            <div class="dropdown-option" data-value="own_percent">SOS RANK</div>
+                            <div class="dropdown-option" data-value="niv_score">NIV SCORE</div>
+                            <div class="dropdown-option" data-value="cpr_rank">CPR RANK</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Roster Content -->
+                <div id="roster-content" class="roster-content">
+                    <div class="loading-text">Loading roster...</div>
+                </div>
+            </div>
+            
+            <!-- Right Module: League Analytics -->
+            <div class="dashboard-right">
+                <div class="module-header">
+                    <h2 class="module-title">LEAGUE ANALYTICS</h2>
+                    <div class="module-subtitle">PLAYERS & INSIGHTS</div>
+                </div>
+                
+                <!-- Player Filters -->
+                <div class="analytics-filters">
+                    <div class="custom-dropdown" id="position-filter-wrapper">
+                        <div class="dropdown-selected" id="position-filter-selected">ALL POSITIONS</div>
+                        <div class="dropdown-arrow">▼</div>
+                        <div class="dropdown-options" id="position-filter-options">
+                            <div class="dropdown-option" data-value="all">ALL POSITIONS</div>
+                            <div class="dropdown-option" data-value="QB">QUARTERBACK</div>
+                            <div class="dropdown-option" data-value="RB">RUNNING BACK</div>
+                            <div class="dropdown-option" data-value="WR">WIDE RECEIVER</div>
+                            <div class="dropdown-option" data-value="TE">TIGHT END</div>
+                            <div class="dropdown-option" data-value="K">KICKER</div>
+                            <div class="dropdown-option" data-value="DEF">DEFENSE</div>
+                        </div>
+                    </div>
+                    
+                    <div class="custom-dropdown" id="availability-filter-wrapper">
+                        <div class="dropdown-selected" id="availability-filter-selected">AVAILABLE ONLY</div>
+                        <div class="dropdown-arrow">▼</div>
+                        <div class="dropdown-options" id="availability-filter-options">
+                            <div class="dropdown-option" data-value="available">AVAILABLE ONLY</div>
+                            <div class="dropdown-option" data-value="all">ALL PLAYERS</div>
+                            <div class="dropdown-option" data-value="rostered">ROSTERED ONLY</div>
+                        </div>
+                    </div>
+                    
+                    <div class="custom-dropdown" id="analytics-stats-dropdown-wrapper">
+                        <div class="dropdown-selected" id="analytics-stats-dropdown-selected">AVG FANTASY POINTS PER GAME</div>
+                        <div class="dropdown-arrow">▼</div>
+                        <div class="dropdown-options" id="analytics-stats-dropdown-options">
+                            <div class="dropdown-option" data-value="avg_points">AVG FANTASY POINTS PER GAME</div>
+                            <div class="dropdown-option" data-value="projected_points">PROJECTED POINTS</div>
+                            <div class="dropdown-option" data-value="start_percent">ADP</div>
+                            <div class="dropdown-option" data-value="own_percent">SOS RANK</div>
+                            <div class="dropdown-option" data-value="niv_score">NIV SCORE</div>
+                            <div class="dropdown-option" data-value="cpr_rank">CPR RANK</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Top Players -->
+                <div id="top-players" class="top-players">
+                    <div class="loading-text">Loading players...</div>
+                </div>
+                
+                <!-- CPR Visualization -->
+                <div class="cpr-visualization">
+                    <div class="viz-header">
+                        <h3 class="viz-title">CPR LEAGUE ANALYSIS</h3>
+                        <button class="generate-viz-btn">GENERATE VISUAL</button>
+                    </div>
+                    <div id="cpr-viz-content" class="viz-content">
+                        <div class="viz-placeholder">Click "GENERATE VISUAL" to create CPR analysis</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Load initial data - use try/catch to prevent errors from clearing the UI
+    try {
+        await loadRosterData();
+    } catch (error) {
+        console.error('Error loading roster data:', error);
+        const rosterContent = document.getElementById('roster-content');
+        if (rosterContent) {
+            rosterContent.innerHTML = '<div class="error-message">Failed to load roster data</div>';
+        }
+    }
+    
+    try {
+        await updateLeagueAnalytics();
+    } catch (error) {
+        console.error('Error loading league analytics:', error);
+        const topPlayers = document.getElementById('top-players');
+        if (topPlayers) {
+            topPlayers.innerHTML = '<div class="error-message">Failed to load player data</div>';
+        }
+    }
+    
+    // Ensure modules have the same height after loading
+    setTimeout(() => {
+        const leftModule = document.querySelector('.dashboard-left');
+        const rightModule = document.querySelector('.dashboard-right');
+        if (leftModule && rightModule) {
+            // Get the actual height of the left module content
+            const leftHeight = leftModule.offsetHeight;
+            // Set the right module to match
+            rightModule.style.height = `${leftHeight}px`;
+        }
+    }, 1000);
 }
 
 async function goToTeamAnalytics(teamId, teamName) {
     console.log('Navigate to team analytics for:', teamId, teamName);
     
     try {
-        // Fetch full team data from NIV API
-        const response = await fetch(`/api/niv?league_id=${LEAGUE_ID}&season=2025`);
-        if (!response.ok) throw new Error('Failed to fetch team data');
-        
-        const data = await response.json();
+        // Fetch full team data from cached NIV API
+        const data = await DataManager.getNIVData();
         const payload = data.data || data;
         const teams = payload.team_niv || payload.team_rankings || payload;
         
@@ -1489,18 +1843,274 @@ async function goToTeamAnalytics(teamId, teamName) {
 
 function getScoutingReport(id, type) {
     console.log(`Getting scouting report for ${type}:`, id);
-    const chatInput = document.getElementById('chat-input');
-    if (chatInput) {
-        if (type === 'team') {
-            chatInput.value = `Give me a detailed scouting report for team ID ${id}`;
-        } else {
-            chatInput.value = `Give me a detailed scouting report for player ID ${id}`;
+    
+    // Create detailed scouting prompt with league data context
+    let prompt;
+    if (type === 'team') {
+        prompt = `SCOUTING REPORT REQUEST
+
+**LEAGUE CONTEXT REQUIRED:**
+- Access league ID: ${LEAGUE_ID}
+- Pull current rosters, player stats, team records
+- Analyze recent performance and trends
+- Consider matchup history and projections
+
+**TARGET:** Team ID: ${id}
+
+**SCOUTING REQUEST:**
+Provide a comprehensive scouting report including:
+
+1. **TEAM OVERVIEW** - Current roster strength and depth
+2. **KEY PLAYERS** - Star performers and sleepers
+3. **WEAKNESSES** - Vulnerable positions and matchups
+4. **RECENT TRENDS** - Performance trajectory and momentum
+5. **STRATEGIC INSIGHTS** - How to exploit or avoid this team
+
+**REQUIREMENTS:**
+- Use REAL league data from Firestore
+- Include actual player stats and projections
+- Consider recent games and transactions
+- Provide actionable fantasy insights
+
+**FORMAT:**
+Structure your response with clear sections and bullet points.`;
+    } else {
+        prompt = `SCOUTING REPORT REQUEST
+
+**LEAGUE CONTEXT REQUIRED:**
+- Access league ID: ${LEAGUE_ID}
+- Pull player stats, projections, and trends
+- Analyze recent performance and usage
+- Consider matchup schedules and opportunities
+
+**TARGET:** Player ID: ${id}
+
+**SCOUTING REQUEST:**
+Provide a comprehensive player scouting report including:
+
+1. **PLAYER PROFILE** - Position, team, role
+2. **PERFORMANCE ANALYSIS** - Recent stats and trends
+3. **USAGE PATTERNS** - Snap counts, target share, touches
+4. **MATCHUP OUTLOOK** - Upcoming schedule strength
+5. **FANTASY OUTLOOK** - Rest of season projection
+
+**REQUIREMENTS:**
+- Use REAL player data from Firestore
+- Include actual stats and projections
+- Consider injury reports and depth charts
+- Provide actionable fantasy advice
+
+**FORMAT:**
+Structure your response with clear sections and key insights.`;
+    }
+    
+    // Add styled user message button
+    addUserMessageButton(`scouting report`, type, `${type} ID: ${id}`);
+    
+    // Send the prompt directly without populating input
+    sendMessageToJaylen(prompt);
+    
+    showScreen('chat');
+}
+
+function findTradePartner(id, type, name) {
+    console.log(`Finding trade partner for ${type}:`, id, name);
+    
+    // Create the detailed prompt with league data context
+    let prompt;
+    if (type === 'team') {
+        prompt = `TRADE PARTNER ANALYSIS REQUEST
+
+**LEAGUE CONTEXT REQUIRED:**
+- Access league ID: ${LEAGUE_ID}
+- Pull current rosters, player stats, team records
+- Analyze team needs and strengths
+- Consider recent transactions and trends
+
+**TARGET:** ${name} (Team ID: ${id})
+
+**ANALYSIS REQUEST:**
+Find the 3 best trade partners for my team. I need:
+
+1. **BALANCED TRADE** - Fair value exchange
+2. **LONG SHOT TRADE** - Ambitious but possible 
+3. **FLEECE OPPORTUNITY** - Maximum value extraction
+
+**REQUIREMENTS:**
+- Use REAL league data from Firestore
+- Consider actual player performances and projections
+- Analyze team needs (QB, RB, WR, TE depth)
+- Suggest 1-3 players per side (prefer 1-2)
+- Include reasoning for each trade scenario
+- Consider which teams would actually accept
+
+**FORMAT:**
+Structure your response with clear sections for each trade type.`;
+    } else {
+        prompt = `TRADE PARTNER ANALYSIS REQUEST
+
+**LEAGUE CONTEXT REQUIRED:**
+- Access league ID: ${LEAGUE_ID}
+- Pull current rosters, player stats, team records
+- Analyze player value and market trends
+- Consider team needs across the league
+
+**TARGET PLAYER:** ${name} (Player ID: ${id})
+
+**ANALYSIS REQUEST:**
+Find the 3 best trade scenarios for this player:
+
+1. **BALANCED TRADE** - Fair market value
+2. **LONG SHOT TRADE** - Aim high but realistic
+3. **FLEECE OPPORTUNITY** - Extract maximum value
+
+**REQUIREMENTS:**
+- Use REAL league data from Firestore
+- Consider actual player stats and projections
+- Find teams that need this player's position
+- Suggest realistic return packages (1-3 players)
+- Include reasoning for each scenario
+- Consider team contexts and needs
+
+**FORMAT:**
+Structure your response with clear sections for each trade type.`;
+    }
+    
+    // Add styled user message button
+    addUserMessageButton(`find trade partner`, type, name);
+    
+    // Send the prompt directly without populating input
+    sendMessageToJaylen(prompt);
+    
+    showScreen('chat');
+}
+
+function addUserMessage(content) {
+    const userMessage = {
+        role: 'user',
+        content: content,
+        timestamp: new Date().toISOString(),
+        tokens: Math.ceil(content.length / 4) // Rough token estimate
+    };
+    chatMessages.push(userMessage);
+    
+    // Update the chat display
+    const container = getChatContainer();
+    if (container) {
+        renderChatMessages();
+    }
+}
+
+function addUserMessageButton(action, type, name) {
+    const userMessage = {
+        role: 'user',
+        content: `Requested ${action} for ${type}: ${name}`,
+        timestamp: new Date().toISOString(),
+        tokens: 10, // Small token count for button message
+        isButton: true // Flag to style as button
+    };
+    chatMessages.push(userMessage);
+    
+    // Update the chat display
+    const container = getChatContainer();
+    if (container) {
+        renderChatMessages();
+    }
+}
+
+async function sendMessageToJaylen(prompt) {
+    try {
+        console.log('Sending message to Jaylen:', prompt.substring(0, 100) + '...');
+        
+        // Add user message to chat
+        const userMessage = {
+            role: 'user',
+            content: prompt,
+            timestamp: new Date().toISOString(),
+            tokens: Math.ceil(prompt.length / 4)
+        };
+        chatMessages.push(userMessage);
+        
+        // Add streaming message directly
+        const streamingId = Date.now();
+        chatMessages.push({ role: 'assistant', content: '', streaming: true, id: streamingId });
+        
+        // Update display
+        renderChatMessages();
+        
+        // Send to Jaylen API
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: prompt,
+                conversationId: currentConversationId,
+                userId: currentUser?.uid || 'anonymous'
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-        showScreen('chat');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let assistantContent = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.content) {
+                            assistantContent += data.content;
+                            
+                            // Update streaming message
+                            const streamingMessage = chatMessages.find(m => m.id === streamingId);
+                            if (streamingMessage) {
+                                streamingMessage.content = assistantContent;
+                                renderChatMessages();
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Non-JSON line:', line);
+                    }
+                }
+            }
+        }
+
+        // Finalize message
+        const streamingMessage = chatMessages.find(m => m.id === streamingId);
+        if (streamingMessage) {
+            streamingMessage.streaming = false;
+            delete streamingMessage.id;
+        }
+
+    } catch (error) {
+        console.error('Error sending message to Jaylen:', error);
+        
+        // Remove streaming message and add error
+        chatMessages = chatMessages.filter(m => m.id !== streamingId);
+        chatMessages.push({ 
+            role: 'assistant', 
+            content: 'sorry, had trouble connecting to jaylen. try again in a moment.' 
+        });
+        renderChatMessages();
     }
 }
 
 function renderAuthUI(user) {
+    // Update window.currentUser
+    window.currentUser = user;
+    
     const authContainer = document.getElementById('auth-container');
 
     if (user) {
@@ -1510,10 +2120,10 @@ function renderAuthUI(user) {
         
         // Check localStorage for claimed team
         const savedTeam = localStorage.getItem('claimedTeam');
-        if (savedTeam) {
-            claimedTeam = JSON.parse(savedTeam);
+        if (savedTeam && !window.claimedTeam) {
+            window.claimedTeam = JSON.parse(savedTeam);
         }
-        const teamDashboardDisabled = !claimedTeam;
+        const teamDashboardDisabled = !window.claimedTeam;
         
         authContainer.innerHTML = `
             <div class="logged-in-view">
@@ -1531,8 +2141,8 @@ function renderAuthUI(user) {
                 
                 <!-- Conversation History -->
                 <div style="margin-bottom: 24px;">
-                    <button onclick="startNewConversation()" class="social-auth-button" style="width: 100%; margin-bottom: 12px; padding: 12px;">NEW CONVERSATION</button>
-                    <div id="conversation-list" style="height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scroll-snap-type: y mandatory; padding: 8px; background: rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; pointer-events: auto;">
+                    <button class="new-conversation-btn social-auth-button" style="width: 100%; margin-bottom: 12px; padding: 12px;">NEW CONVERSATION</button>
+                    <div id="conversation-list" style="height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scroll-snap-type: y mandatory; padding: 8px; background: rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.08); border-radius: var(--radius-xl); pointer-events: auto;">
                         <div style="min-height: 112px; padding: 20px; text-align: center; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;">
                             <div style="font-family: 'Work Sans', -apple-system, sans-serif; font-size: 12px; color: rgba(255,255,255,0.5); letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;">NO SAVED CONVERSATIONS</div>
                         </div>
@@ -1541,8 +2151,8 @@ function renderAuthUI(user) {
                 
                 <!-- Action Buttons matching logged-out view -->
                 <div class="auth-form-buttons">
-                    <button onclick="logout()" class="social-auth-button">SIGN OUT</button>
-                    <button ${teamDashboardDisabled ? 'disabled' : ''} onclick="${teamDashboardDisabled ? '' : 'goToTeamDashboard()'}" class="social-auth-button" style="${teamDashboardDisabled ? 'opacity: 0.3; cursor: not-allowed;' : ''}">TEAM DASHBOARD</button>
+                    <button class="logout-btn social-auth-button">SIGN OUT</button>
+                    <button class="team-dashboard-btn social-auth-button" ${teamDashboardDisabled ? 'disabled' : ''} style="${teamDashboardDisabled ? 'opacity: 0.3; cursor: not-allowed;' : ''}">TEAM DASHBOARD</button>
                 </div>
             </div>
         `;
@@ -1554,7 +2164,7 @@ function renderAuthUI(user) {
                 <p class="auth-subtitle">CREATE AN ACCOUNT TO SAVE YOUR CHAT HISTORY AND GET PERSONALIZED INSIGHTS.</p>
             </div>
             <div class="auth-buttons-grid">
-                <button class="social-auth-button" onclick="loginGoogle()">
+                <button class="login-google-btn social-auth-button">
                     <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" style="width: 20px; height: 20px; margin-right: 8px;"/>
                     <span>SIGN IN WITH GOOGLE</span>
                 </button>
@@ -1564,8 +2174,8 @@ function renderAuthUI(user) {
                 <input type="email" id="auth-email" placeholder="EMAIL" class="auth-input"/>
                 <input type="password" id="auth-password" placeholder="PASSWORD" class="auth-input"/>
                 <div class="auth-form-buttons">
-                    <button class="social-auth-button" onclick="loginEmail()">SIGN IN</button>
-                    <button class="social-auth-button" onclick="signupEmail()">SIGN UP</button>
+                    <button class="login-email-btn social-auth-button">SIGN IN</button>
+                    <button class="signup-email-btn social-auth-button">SIGN UP</button>
                 </div>
             </div>
         `;
@@ -1689,23 +2299,51 @@ function handleAvatarUpload(event) {
 }
 
 // Team claiming functions
-function claimTeam(teamId, teamName) {
+async function claimTeam(teamId, teamName) {
     if (!window.currentUser) {
         alert('Please sign in to claim a team');
         openProfile();
         return;
     }
     
-    claimedTeam = { team_id: teamId, team_name: teamName };
-    localStorage.setItem('claimedTeam', JSON.stringify(claimedTeam));
+    // Confirmation popup
+    const confirmed = confirm(`is this really your team, bitch?\n\n${teamName}`);
+    if (!confirmed) {
+        return;
+    }
+    
+    // Save to window.claimedTeam and localStorage
+    window.claimedTeam = { team_id: teamId, team_name: teamName };
+    localStorage.setItem('claimedTeam', JSON.stringify(window.claimedTeam));
+    
+    // Save to Firebase Firestore for persistence
+    try {
+        const userDocRef = window.firestore.doc(window.firebaseDb, 'users', window.currentUser.uid);
+        await window.firestore.setDoc(userDocRef, {
+            claimedTeam: window.claimedTeam,
+            email: window.currentUser.email,
+            displayName: window.currentUser.displayName,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
+        console.log('Team claim saved to Firebase');
+    } catch (error) {
+        console.error('Error saving team claim to Firebase:', error);
+    }
+    
     updateClaimButtons();
+    renderAuthUI(window.currentUser); // Refresh UI to show claimed team
+    
+    // Reload CPR screen to show "claimed by" text
+    if (currentScreen === 'cpr') {
+        loadCPRScreen();
+    }
 }
 
 function updateClaimButtons() {
     const buttons = document.querySelectorAll('.claim-team-btn');
     const savedTeam = localStorage.getItem('claimedTeam');
-    if (savedTeam) {
-        claimedTeam = JSON.parse(savedTeam);
+    if (savedTeam && !window.claimedTeam) {
+        window.claimedTeam = JSON.parse(savedTeam);
     }
     
     buttons.forEach(btn => {
@@ -1714,7 +2352,7 @@ function updateClaimButtons() {
         if (!window.currentUser) {
             btn.disabled = true;
             btn.style.display = 'none';
-        } else if (claimedTeam && teamId === claimedTeam.team_id) {
+        } else if (window.claimedTeam && teamId === window.claimedTeam.team_id) {
             btn.style.display = 'none';
         } else {
             btn.disabled = false;
@@ -1727,7 +2365,7 @@ function updateClaimButtons() {
     // Update team dashboard button
     const dashboardBtns = document.querySelectorAll('[onclick*="goToTeamDashboard"]');
     dashboardBtns.forEach(btn => {
-        btn.disabled = !claimedTeam;
+        btn.disabled = !window.claimedTeam;
     });
 }
 
@@ -1768,6 +2406,637 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize auth UI
     renderAuthUI(null);
+    
+    // Update team dashboard button
+    const dashboardBtns = document.querySelectorAll('[onclick*="goToTeamDashboard"]');
+    dashboardBtns.forEach(btn => {
+        btn.disabled = !window.claimedTeam;
+    });
 });
+
+// --- Team Dashboard Functions ---
+
+async function getCurrentUserTeam() {
+    try {
+        console.log('Getting current user team...');
+        
+        // Check if user has claimed a team
+        if (window.claimedTeam && window.claimedTeam.team_name) {
+            console.log('Using claimed team:', window.claimedTeam.team_name);
+            
+            // Get league users to match team names
+            const leagueResponse = await fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`);
+            const users = await leagueResponse.json();
+            console.log('League users:', users.map(u => ({ 
+                user_id: u.user_id, 
+                display_name: u.display_name, 
+                team_name: u.metadata?.team_name 
+            })));
+            
+            // Get roster data to match owner_id
+            const rosterResponse = await fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`);
+            const rosters = await rosterResponse.json();
+            console.log('Rosters:', rosters.map(r => ({ 
+                roster_id: r.roster_id, 
+                owner_id: r.owner_id 
+            })));
+            
+            // Find the user that owns this team by matching team name (case-insensitive)
+            const claimedName = window.claimedTeam.team_name.toLowerCase().trim();
+            console.log('Looking for team name:', claimedName);
+            
+            const user = users.find(u => {
+                const teamName = u.metadata?.team_name?.toLowerCase().trim();
+                const displayName = u.display_name?.toLowerCase().trim();
+                console.log(`Checking user ${u.user_id}: team_name="${teamName}", display_name="${displayName}"`);
+                return teamName === claimedName || displayName === claimedName;
+            });
+            
+            if (user) {
+                console.log('Found claimed team user:', user);
+                return {
+                    user_id: user.user_id,
+                    team_name: user.metadata?.team_name || user.display_name,
+                    display_name: user.display_name
+                };
+            } else {
+                console.error('Could not find user for claimed team:', window.claimedTeam.team_name);
+                console.log('Available teams:', users.map(u => u.metadata?.team_name || u.display_name));
+                return null;
+            }
+        }
+        
+        console.log('No claimed team found - user needs to claim a team first');
+        return null;
+    } catch (error) {
+        console.error('Error fetching user team:', error);
+        return null;
+    }
+}
+
+function switchRosterTab(tab) {
+    // Update tab buttons
+    document.querySelectorAll('.roster-tab').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Load tab content
+    switch(tab) {
+        case 'roster':
+            loadRosterData();
+            break;
+        case 'matchup':
+            loadMatchupData();
+            break;
+        case 'optimize':
+            loadOptimizeData();
+            break;
+    }
+}
+
+async function loadRosterData() {
+    const container = document.getElementById('roster-content');
+    if (!container) return;
+    
+    try {
+        console.log('Loading roster data for:', window.claimedTeam?.team_name);
+        
+        // Get current user's team data first
+        const teamData = await getCurrentUserTeam();
+        console.log('Team data:', teamData);
+        
+        if (!teamData || !teamData.user_id) {
+            console.log('No team data found, showing error');
+            container.innerHTML = '<div class="error-message">Please claim a team first</div>';
+            return;
+        }
+        
+        // Get roster data from Sleeper API using global cache
+        const rosterData = await SleeperDataCache.getRosters();
+        
+        // Find current user's roster
+        const userRoster = rosterData.find(r => r.owner_id === teamData.user_id);
+        if (!userRoster || !userRoster.players) {
+            container.innerHTML = '<div class="error-message">No roster found for your team</div>';
+            return;
+        }
+        
+        // Get projections data for ADP using global cache
+        const projectionsData = await SleeperDataCache.getProjections();
+        
+        // Get matchup data to calculate SOS (only fetch once and reuse)
+        let matchupData = window.matchupDataCache;
+        if (!matchupData) {
+            const matchupPromises = [];
+            for (let week = 1; week <= 8; week++) {
+                matchupPromises.push(fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/matchups/${week}`).then(r => r.json()));
+            }
+            matchupData = await Promise.all(matchupPromises);
+            window.matchupDataCache = matchupData; // Cache for reuse
+        }
+        
+        // Calculate SOS rank for each roster
+        const rosterPoints = {};
+        rosterData.forEach(roster => {
+            rosterPoints[roster.roster_id] = 0;
+        });
+        
+        // Sum up points for each roster across all weeks
+        matchupData.forEach(weekData => {
+            if (weekData && Array.isArray(weekData)) {
+                weekData.forEach(matchup => {
+                    if (matchup && matchup.roster_id && matchup.points !== undefined) {
+                        rosterPoints[matchup.roster_id] = (rosterPoints[matchup.roster_id] || 0) + matchup.points;
+                    }
+                });
+            }
+        });
+        
+        // Create array of roster IDs sorted by points (higher points = stronger opponent)
+        const sortedRosters = Object.entries(rosterPoints)
+            .sort((a, b) => b[1] - a[1])
+            .map(([rosterId, points], index) => ({ rosterId: parseInt(rosterId), points, rank: index + 1 }));
+        
+        // Create a map of roster ID to SOS rank (1 = toughest schedule, 12 = easiest)
+        const sosRankMap = {};
+        sortedRosters.forEach(roster => {
+            sosRankMap[roster.rosterId] = roster.rank;
+        });
+        
+        // Get SOS rank for user's roster
+        const userSosRank = sosRankMap[userRoster.roster_id] || null;
+        
+        // Get NIV data for player stats from cache
+        const nivData = await DataManager.getNIVData();
+        const payload = nivData.data || nivData;
+        const allTeams = payload.team_niv || payload.team_rankings || payload;
+        
+        // Get Sleeper player database for names and positions using global cache
+        const sleeperPlayers = await SleeperDataCache.getPlayers();
+        
+        // Get current season stats from Sleeper (2025 season) using global cache
+        const statsData = await SleeperDataCache.getStats();
+        
+        // Get current stats dropdown selection
+        const selectedStat = window.currentStatsSelection || 'avg_points';
+        
+        // Group players by position
+        const positionGroups = {
+            QB: [],
+            RB: [],
+            WR: [],
+            TE: [],
+            K: [],
+            DEF: []
+        };
+        
+        // Map roster players to player data
+        userRoster.players.forEach(playerId => {
+            const sleeperPlayer = sleeperPlayers[playerId];
+            if (!sleeperPlayer) return;
+            
+            // Find NIV data for this player
+            let nivPlayerData = null;
+            if (Array.isArray(allTeams)) {
+                for (const team of allTeams) {
+                    if (team.players) {
+                        nivPlayerData = team.players.find(p => p.player_id === playerId);
+                        if (nivPlayerData) break;
+                    }
+                }
+            }
+            
+            // Get player stats
+            const playerStats = statsData[playerId] || {};
+            const playerProjections = projectionsData[playerId] || {};
+            
+            // Combine Sleeper, NIV, and Stats data
+            const player = {
+                player_id: playerId,
+                player_name: sleeperPlayer.full_name || sleeperPlayer.first_name + ' ' + sleeperPlayer.last_name,
+                position: sleeperPlayer.position,
+                team: sleeperPlayer.team,
+                niv: nivPlayerData?.niv || 0,
+                market_niv: nivPlayerData?.market_niv || 0,
+                adp_ppr: playerProjections.adp_ppr,
+                sos_rank: userSosRank,
+                // Include ALL Sleeper stats
+                ...playerStats,
+                ...nivPlayerData
+            };
+            
+            // Debug log for Jonathan Taylor
+            if (player.player_name === 'Jonathan Taylor') {
+                console.log('Jonathan Taylor data:', {
+                    pts_ppr: player.pts_ppr,
+                    gp: player.gp,
+                    avg: player.pts_ppr / player.gp,
+                    raw_stats: playerStats
+                });
+            }
+            
+            const position = player.position || 'FLEX';
+            const targetPos = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(position) ? position : 'FLEX';
+            
+            if (!positionGroups[targetPos]) positionGroups[targetPos] = [];
+            positionGroups[targetPos].push(player);
+        });
+        
+        // Render roster by position
+        let rosterHTML = '<div class="roster-positions">';
+        
+        Object.entries(positionGroups).forEach(([position, players]) => {
+            if (players.length > 0) {
+                rosterHTML += `
+                    <div class="position-group">
+                        <div class="position-label">${position}</div>
+                `;
+                
+                players.forEach(player => {
+                    const playerName = (player.player_name || player.name || 'Unknown Player').toUpperCase();
+                    const nflTeam = (player.team || 'FA').toUpperCase();
+                    const statValue = getPlayerStatValue(player, selectedStat);
+                    const statLabel = getStatLabel(selectedStat);
+                    
+                    rosterHTML += `
+                        <div class="player-slot">
+                            <div class="player-tile-dashboard">
+                                <div class="player-info">
+                                    <div class="player-name">${playerName}</div>
+                                    <div class="player-team">${nflTeam}</div>
+                                </div>
+                                <div class="player-stat-container">
+                                    <div class="player-stat">${statValue}</div>
+                                    <div class="stat-label">${statLabel}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                rosterHTML += '</div>';
+            }
+        });
+        
+        rosterHTML += '</div>';
+        container.innerHTML = rosterHTML;
+        
+        console.log('Roster loaded successfully with real data');
+        
+    } catch (error) {
+        console.error('Error loading roster:', error);
+        container.innerHTML = '<div class="error-message">Failed to load roster data</div>';
+    }
+}
+
+function getPlayerStatValue(player, statType) {
+    // Use ACTUAL Sleeper fantasy points - don't calculate!
+    // Sleeper provides pts_ppr, pts_half_ppr, pts_std already calculated
+    
+    switch(statType) {
+        case 'avg_points':
+            // Use Sleeper's ACTUAL PPR points
+            const totalPoints = player.pts_ppr || 0;
+            const gamesPlayed = player.gp || 1;
+            const avgPoints = gamesPlayed > 0 ? totalPoints / gamesPlayed : 0;
+            return avgPoints.toFixed(2);
+            
+        case 'projected_points':
+            return (player.market_niv || player.niv || 0).toFixed(1);
+        case 'start_percent':
+            // Use ADP instead of start percentage
+            if (player.adp_ppr !== undefined && player.adp_ppr !== 999.0) {
+                return player.adp_ppr.toFixed(1);
+            }
+            return 'N/A';
+        case 'own_percent':
+            // Use SOS rank instead of own percentage
+            if (player.sos_rank !== undefined) {
+                return `#${player.sos_rank}`;
+            }
+            return 'N/A';
+        case 'niv_score':
+            return player.niv ? player.niv.toFixed(3) : '0.000';
+        case 'cpr_rank':
+            return player.rank ? `#${player.rank}` : 'N/A';
+        default:
+            return (player.market_niv || player.niv || 0).toFixed(1);
+    }
+}
+
+function getStatLabel(statType) {
+    switch(statType) {
+        case 'avg_points':
+            return 'PPR AVG';
+        case 'projected_points':
+            return 'PROJ';
+        case 'start_percent':
+            return 'ADP';
+        case 'own_percent':
+            return 'SOS RANK';
+        case 'niv_score':
+            return 'NIV';
+        case 'cpr_rank':
+            return 'RANK';
+        default:
+            return 'PROJ';
+    }
+}
+
+async function loadMatchupData() {
+    const container = document.getElementById('roster-content');
+    container.innerHTML = '<div class="loading-text">Loading matchup data...</div>';
+    
+    // TODO: Implement matchup view
+    setTimeout(() => {
+        container.innerHTML = '<div class="placeholder-message">Matchup view coming soon!</div>';
+    }, 1000);
+}
+
+async function loadOptimizeData() {
+    const container = document.getElementById('roster-content');
+    container.innerHTML = '<div class="loading-text">Loading optimization...</div>';
+    
+    // TODO: Implement AI optimization
+    setTimeout(() => {
+        container.innerHTML = '<div class="placeholder-message">AI optimization coming soon!</div>';
+    }, 1000);
+}
+
+function updatePlayerStats() {
+    const selectedStat = window.currentStatsSelection || 'avg_points';
+    console.log('Updating player stats for:', selectedStat);
+    
+    // TODO: Update player stat display based on dropdown selection
+    loadRosterData(); // Reload with new stat
+}
+
+async function updateLeagueAnalytics() {
+    const container = document.getElementById('top-players');
+    const position = window.currentPositionFilter || 'all';
+    const availability = window.currentAvailabilityFilter || 'available';
+    const selectedStat = window.currentAnalyticsStatsSelection || 'avg_points';
+    
+    container.innerHTML = '<div class="loading-text">Loading players...</div>';
+    
+    try {
+        console.log('Loading ALL fantasy players from Sleeper...');
+        
+        // Get ALL Sleeper players using global cache
+        const sleeperPlayers = await SleeperDataCache.getPlayers();
+        
+        // Get current season stats (2025) using global cache
+        const statsData = await SleeperDataCache.getStats();
+        
+        // Get projections data for ADP using global cache
+        const projectionsData = await SleeperDataCache.getProjections();
+        
+        // Get roster data to determine availability using global cache
+        const rosterData = await SleeperDataCache.getRosters();
+        
+        // Get matchup data to calculate SOS (only fetch once and reuse)
+        let matchupData = window.matchupDataCache;
+        if (!matchupData) {
+            const matchupPromises = [];
+            for (let week = 1; week <= 8; week++) {
+                matchupPromises.push(fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/matchups/${week}`).then(r => r.json()));
+            }
+            matchupData = await Promise.all(matchupPromises);
+            window.matchupDataCache = matchupData; // Cache for reuse
+        }
+        
+        // Create set of rostered player IDs
+        const rosteredPlayerIds = new Set();
+        rosterData.forEach(roster => {
+            if (roster.players) {
+                roster.players.forEach(playerId => rosteredPlayerIds.add(playerId));
+            }
+        });
+        
+        // Calculate SOS rank for each roster
+        const rosterPoints = {};
+        rosterData.forEach(roster => {
+            rosterPoints[roster.roster_id] = 0;
+        });
+        
+        // Sum up points for each roster across all weeks
+        matchupData.forEach(weekData => {
+            if (weekData && Array.isArray(weekData)) {
+                weekData.forEach(matchup => {
+                    if (matchup && matchup.roster_id && matchup.points !== undefined) {
+                        rosterPoints[matchup.roster_id] = (rosterPoints[matchup.roster_id] || 0) + matchup.points;
+                    }
+                });
+            }
+        });
+        
+        // Create array of roster IDs sorted by points (higher points = stronger opponent)
+        const sortedRosters = Object.entries(rosterPoints)
+            .sort((a, b) => b[1] - a[1])
+            .map(([rosterId, points], index) => ({ rosterId: parseInt(rosterId), points, rank: index + 1 }));
+        
+        // Create a map of roster ID to SOS rank (1 = toughest schedule, 12 = easiest)
+        const sosRankMap = {};
+        sortedRosters.forEach(roster => {
+            sosRankMap[roster.rosterId] = roster.rank;
+        });
+        
+        // Build player list from ALL Sleeper players
+        let allPlayers = [];
+        Object.entries(sleeperPlayers).forEach(([playerId, player]) => {
+            // Only include fantasy-relevant positions
+            if (!['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position)) return;
+            
+            const playerStats = statsData[playerId] || {};
+            const playerProjections = projectionsData[playerId] || {};
+            const isRostered = rosteredPlayerIds.has(playerId);
+            const fantasyPoints = playerStats.pts_ppr || playerStats.pts_half_ppr || playerStats.pts_std || 0;
+            
+            // Only include players with stats or who are rostered
+            if (fantasyPoints > 0 || isRostered) {
+                // Find which roster this player is on
+                let playerRosterId = null;
+                let sosRank = null;
+                for (const roster of rosterData) {
+                    if (roster.players && roster.players.includes(playerId)) {
+                        playerRosterId = roster.roster_id;
+                        sosRank = sosRankMap[playerRosterId] || null;
+                        break;
+                    }
+                }
+                
+                allPlayers.push({
+                    player_id: playerId,
+                    player_name: player.full_name || `${player.first_name} ${player.last_name}`,
+                    position: player.position,
+                    team: player.team || 'FA',
+                    pts_ppr: fantasyPoints,
+                    isRostered: isRostered,
+                    availability: isRostered ? 'rostered' : 'available',
+                    adp_ppr: playerProjections.adp_ppr,
+                    sos_rank: sosRank,
+                    ...playerStats
+                });
+            }
+        });
+        
+        // Filter by position
+        if (position !== 'all') {
+            allPlayers = allPlayers.filter(p => p.position === position);
+        }
+        
+        // Filter by availability
+        if (availability !== 'all') {
+            allPlayers = allPlayers.filter(p => p.availability === availability);
+        }
+        
+        // Sort by selected stat (descending)
+        allPlayers.sort((a, b) => {
+            const aVal = parseFloat(getPlayerStatValue(a, selectedStat)) || 0;
+            const bVal = parseFloat(getPlayerStatValue(b, selectedStat)) || 0;
+            return bVal - aVal;
+        });
+        
+        // Take top 50 players
+        const topPlayers = allPlayers.slice(0, 50);
+        
+        if (topPlayers.length === 0) {
+            container.innerHTML = '<div class="placeholder-message">No players found for selected filters</div>';
+            return;
+        }
+        
+        // Render player list
+        let playersHTML = '<div class="players-list">';
+        
+        topPlayers.forEach((player, index) => {
+            const playerName = player.player_name || player.name || 'Unknown Player';
+            const position = player.position || 'N/A';
+            const nflTeam = player.team || 'FA';
+            const statValue = getPlayerStatValue(player, selectedStat);
+            const statLabel = getStatLabel(selectedStat);
+            
+            playersHTML += `
+                <div class="player-tile-dashboard">
+                    <div class="player-info">
+                        <div class="player-name">${playerName.toUpperCase()}</div>
+                        <div class="player-team">${nflTeam.toUpperCase()}</div>
+                    </div>
+                    <div class="player-stat-container">
+                        <div class="player-stat">${statValue}</div>
+                        <div class="stat-label">${statLabel}</div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        playersHTML += '</div>';
+        container.innerHTML = playersHTML;
+        
+        console.log(`Loaded ${topPlayers.length} players for analytics`);
+        
+    } catch (error) {
+        console.error('Error loading league analytics:', error);
+        container.innerHTML = '<div class="error-message">Failed to load player data</div>';
+    }
+}
+
+async function generateCPRVisualization() {
+    const container = document.getElementById('cpr-viz-content');
+    container.innerHTML = '<div class="loading-text">Generating CPR visualization...</div>';
+    
+    try {
+        console.log('Generating REAL CPR visualization...');
+        
+        // Get CPR rankings data from cache
+        const cprData = await DataManager.getCPRData();
+        
+        // Get league data for team names
+        const leagueResponse = await fetch(`/api/league?league_id=${LEAGUE_ID}`);
+        const leagueData = await leagueResponse.json();
+        
+        const teams = cprData.data || cprData;
+        const users = leagueData.users || [];
+        
+        if (!teams || teams.length === 0) {
+            container.innerHTML = '<div class="error-message">No CPR data available</div>';
+            return;
+        }
+        
+        // Sort teams by CPR score (descending)
+        const sortedTeams = teams.sort((a, b) => (b.cpr_score || 0) - (a.cpr_score || 0));
+        
+        // Take top 8 teams for visualization
+        const topTeams = sortedTeams.slice(0, 8);
+        
+        // Find max score for scaling
+        const maxScore = Math.max(...topTeams.map(t => t.cpr_score || 0));
+        
+        let chartHTML = `
+            <div class="cpr-chart">
+                <div class="chart-placeholder">
+                    <div class="chart-title">LEAGUE CPR ANALYSIS</div>
+                    <div class="chart-subtitle">Team Power Rankings & Trends</div>
+                    <div class="chart-content">
+        `;
+        
+        topTeams.forEach((team, index) => {
+            // Find team name from users data
+            const user = users.find(u => u.user_id === team.user_id);
+            const teamName = user?.metadata?.team_name || user?.display_name || `Team ${index + 1}`;
+            const shortName = teamName.length > 8 ? teamName.substring(0, 8) + '...' : teamName;
+            
+            const cprScore = team.cpr_score || 0;
+            const height = maxScore > 0 ? (cprScore / maxScore * 80) : 20; // Scale to 80% max height
+            
+            chartHTML += `
+                <div class="chart-bar" style="height: ${height}%;">
+                    <div class="bar-value">${cprScore.toFixed(1)}</div>
+                    <div class="bar-label">${shortName}</div>
+                </div>
+            `;
+        });
+        
+        chartHTML += `
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = chartHTML;
+        console.log('CPR visualization generated successfully');
+        
+    } catch (error) {
+        console.error('Error generating CPR visualization:', error);
+        container.innerHTML = '<div class="error-message">Failed to generate CPR visualization</div>';
+    }
+}
+
+// --- Utility Functions ---
+
+async function calculateLeagueAvgScore() {
+    try {
+        // Get roster data from Sleeper to get PF (points for) and games played
+        const rostersResponse = await fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`);
+        const rosters = await rostersResponse.json();
+        
+        let totalAvgScore = 0;
+        let teamCount = 0;
+        
+        rosters.forEach(roster => {
+            const pf = roster.settings?.fpts || 0; // Points For
+            const gamesPlayed = roster.settings?.wins + roster.settings?.losses + roster.settings?.ties || 1;
+            
+            if (gamesPlayed > 0) {
+                const avgFppg = pf / gamesPlayed;
+                totalAvgScore += avgFppg;
+                teamCount++;
+            }
+        });
+        
+        return teamCount > 0 ? totalAvgScore / teamCount : 0;
+    } catch (error) {
+        console.error('Error calculating league avg score:', error);
+        return 0;
+    }
+}
 
 // --- Initialization Complete ---

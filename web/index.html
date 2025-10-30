@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#003368">
     <title>NFL CPR - Commissioner's Power Rankings</title>
-    <link rel="stylesheet" href="styles.css?v=13.21&t=1730211000&isolation=fix">
+    <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -83,7 +83,7 @@
 
         <!-- Team Dashboard Screen -->
         <div id="dashboard-screen" class="screen">
-            <div class="scroll-container" style="padding: 20px;">
+            <div class="scroll-container" style="padding: 0;">
                 <div id="dashboard-content"></div>
             </div>
         </div>
@@ -216,8 +216,27 @@
         });
 
         // Listen for auth state changes and update the UI
-        onAuthStateChanged(auth, (user) => {
+        onAuthStateChanged(auth, async (user) => {
             window.currentUser = user;
+            
+            // Load claimed team from Firebase
+            if (user) {
+                try {
+                    const userDocRef = window.firestore.doc(window.firebaseDb, 'users', user.uid);
+                    const userDoc = await window.firestore.getDoc(userDocRef);
+                    if (userDoc.exists()) {
+                        const userData = userDoc.data();
+                        if (userData.claimedTeam) {
+                            window.claimedTeam = userData.claimedTeam;
+                            localStorage.setItem('claimedTeam', JSON.stringify(window.claimedTeam));
+                            console.log('Loaded claimed team from Firebase:', window.claimedTeam);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading claimed team from Firebase:', error);
+                }
+            }
+            
             renderAuthUI(user);
             updateClaimButtons();
 
@@ -254,6 +273,6 @@
         });
     </script>
     
-    <script src="app.js?v=13.21&t=1730211000&isolation=fix"></script>
+    <script src="app.js"></script>
 </body>
 </html>

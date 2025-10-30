@@ -59,6 +59,33 @@ async def handle_list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="get_league_scoring",
+            description="Get Legion Fantasy Football league scoring settings for accurate point calculations",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_player_stats",
+            description="Get real player stats with accurate fantasy points using league scoring",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "player_id": {
+                        "type": "string",
+                        "description": "Sleeper player ID"
+                    },
+                    "week": {
+                        "type": "integer",
+                        "description": "Week number (optional, defaults to season stats)",
+                        "minimum": 1,
+                        "maximum": 18
+                    }
+                }
+            }
+        ),
+        Tool(
             name="get_league_info",
             description="Get Legion Fantasy Football league information (season, week, status)",
             inputSchema={
