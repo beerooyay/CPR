@@ -1,4 +1,4 @@
-# CPR-NFL — Commissioner's Parity Report (NFL)
+# CPR-NFL — Commissioner's Power Rank (NFL)
 
 **A novel, serverless NFL fantasy analytics framework combining game theory, economics, and information theory.**
 
