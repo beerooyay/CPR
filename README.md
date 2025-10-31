@@ -1,4 +1,4 @@
-# CPR-NFL — Commissioner's Power Rank (NFL)
+# CPR — Commissioner's Power Rank Algorithm
 
 **A novel, serverless NFL fantasy analytics framework combining game theory, economics, and information theory.**
 
