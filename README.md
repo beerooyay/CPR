@@ -20,7 +20,7 @@ CPR is a novel fantasy sports-agnostic ranking system that uses:
 CPR = (0.30×SLI + 0.20×BSI + 0.15×SMI + 0.15×Ingram + 0.10×Alvarado + 0.10×Zion)
 ```
 
-**REVOLUTIONARY Components:**
+**Components:**
 - **SLI** (Strength of Lineup Index) — Starter fantasy points per game
 - **BSI** (Bench Strength Index) — Bench depth and quality
 - **SMI** (Schedule Momentum Index) — Recent performance trends
@@ -308,19 +308,3 @@ docker run cpr-nfl
 This project is released under a custom "source-available" license. See the [LICENSE](LICENSE) file for details.
 
 ---
-
-## Support
-
-- **Documentation**: See the `docs/` directory for detailed guides
-- **Issues**: Open an issue on GitHub for bugs or feature requests
-- **Discussions**: Use GitHub Discussions for questions and ideas
-- **Email**: Contact the maintainers for enterprise support
-
----
-
-## Acknowledgments
-
-- **Sleeper** for the excellent fantasy football API
-- **Firebase** for the serverless infrastructure
-- **OpenRouter** for AI model access
-- **The fantasy football community** for inspiration and feedback
